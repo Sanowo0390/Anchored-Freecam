@@ -1,0 +1,20 @@
+name: AnchoredFreecam
+version: '${version}'
+main: io.github.sanowo0390.anchoredfreecam.AnchoredFreecamPlugin
+api-version: '1.21.11'
+author: Sanowo0390
+description: Server-side collision-preserving limited freecam for Java and Geyser players.
+website: https://github.com/Sanowo0390/Anchored-Freecam
+commands:
+  freecam:
+    description: Toggle AnchoredFreecam.
+    usage: /freecam [on|off|toggle|status|reload]
+    aliases: [fc]
+    permission: anchoredfreecam.use
+permissions:
+  anchoredfreecam.use:
+    description: Allows use of /freecam.
+    default: true
+  anchoredfreecam.reload:
+    description: Allows reloading AnchoredFreecam's configuration.
+    default: op
