@@ -1,5 +1,7 @@
 # Maximum 3D distance from the anchor, in blocks ("マス").
 # Example: 5 means the camera cannot move farther than 5 blocks from the body.
+# Crossing the boundary does NOT end freecam; the camera is returned to
+# its last valid in-range position.
 max-distance-blocks: 5.0
 
 # Leave a visible/damageable body proxy at the anchor.
@@ -10,7 +12,9 @@ leave-body-at-anchor: true
 # to the anchor, then forward that damage to the real player.
 exit-on-body-damage: true
 
-# Hide the real moving player entity (the camera) from other players.
+# Hide the real moving player entity (the camera) from human players only.
+# The real Player is NOT set invisible, so hostile mob AI can still acquire it
+# and AnchoredFreecam can redirect that target to the body proxy.
 hide-camera-player-from-others: true
 
 # Prevent environmental/other damage from affecting the moving camera entity.
@@ -21,5 +25,5 @@ protect-camera-player: true
 # Block collision remains enabled.
 disable-camera-entity-collision: true
 
-# Warn in the action bar when crossing the radius boundary.
+# Warn in the action bar when the camera is returned inside the radius.
 show-boundary-message: true
