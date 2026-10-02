@@ -1,29 +1,63 @@
 # Anchored Freecam
 
-Paper/Purpur 1.21.11 向けの、クライアントMod不要の制限付きFreecam風プラグインです。
+Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライアントMod不要の制限付きFreecamプラグインです。
 
 ## 特徴
 
 - `/freecam` / `/fc` でON/OFF
-- 開始地点をアンカーとして、デフォルトでは3D距離5ブロック以内だけ移動可能
-- Spectatorには変更せず通常のPlayer飛行を使うため、ブロック衝突判定を維持
-- Freecam中は他プレイヤーから非表示化可能
-- ダメージ、攻撃、ブロック破壊/設置、インタラクト、アイテム取得/投棄、消費、バケツ、インベントリ操作を抑止
-- 終了時に元位置・allowFlight・flying・invulnerable・collidable・gliding・fallDistanceを復元
-- 外部テレポート時はFreecamを解除してテレポート自体は妨害しない
-- ゲームモード変更、切断、キック、プラグイン停止時にもクリーンアップ
+- 開始地点にプレイヤーの見た目・装備をコピーした **Mannequin本体** を残す
+- 実Playerは他人から隠され、カメラ役として飛行
+- 本体から設定したマス数以上は離れられない
+- Spectatorを使わないため、カメラ側にも通常のブロック衝突判定が残る
+- Freecam中のブロック破壊・設置・攻撃・インタラクト・アイテム操作を禁止
+- Mobが移動中のカメラPlayerをターゲットにした場合、可能ならアンカー側の本体へターゲットを移す
+- 本体がダメージを受けると、デフォルトではFreecamを即終了して本人を本体位置へ戻し、そのダメージを本人へ転送
+- 終了時に飛行・無敵・衝突・不可視などの状態を復元
+
+## 「本体を残す」の実装
+
+Bukkit/Paperの通常APIでは、1つのPlayer Entityを開始地点に残したまま同じPlayerを別位置のカメラとして動かすことはできません。
+
+Anchored FreecamではPaper 26.2の **Mannequin** を本体代理として使います。プレイヤーのスキンと装備を複製し、攻撃可能なLivingEntityとして開始地点に残します。実際のPlayer Entityはカメラとして動き、他プレイヤーからは非表示になります。
+
+本体への攻撃を本人へ転送するため、サバイバルでFreecamを完全な安全地帯として使いにくい設計です。
 
 ## Geyser / Bedrock
 
-クライアントModやFabricは不要です。サーバー側の通常のPlayer abilityと移動だけを使う構成です。
+クライアントModは不要です。Geyserが対応するJava 26.2環境を想定しています。
 
-Geyser/Bedrock環境でも利用できる設計ですが、アンチチート構成によっては飛行判定の除外設定が必要になる場合があります。
+Bedrock側の入力・飛行挙動はGeyserを経由するため、アンチチートを併用している場合はFreecam中の飛行を除外する設定が必要になる場合があります。
 
-## 重要な制限
+## config.yml
 
-これは「開始地点を身体位置として扱う」Freecam風実装です。
+```yaml
+# 本体から離れられる最大距離（マス）
+max-distance-blocks: 5.0
 
-実際のPlayer Entityそのものを透明なカメラとして移動させるため、開始地点に攻撃可能な本体NPCを残す方式ではありません。
+# 開始地点にMannequin本体を残す
+leave-body-at-anchor: true
+
+# 本体が攻撃されたらFreecamを終了してダメージを本人へ転送
+exit-on-body-damage: true
+
+# 移動中の実Player（カメラ）を他プレイヤーから隠す
+hide-camera-player-from-others: true
+
+# カメラ側で受けたダメージを無効化する
+protect-camera-player: true
+
+# カメラとEntityの衝突を無効化する
+# ブロックとの衝突は残る
+disable-camera-entity-collision: true
+
+show-boundary-message: true
+```
+
+たとえば10マスにしたい場合:
+
+```yaml
+max-distance-blocks: 10.0
+```
 
 ## コマンド
 
@@ -38,19 +72,14 @@ Geyser/Bedrock環境でも利用できる設計ですが、アンチチート構
 - `anchoredfreecam.use` — デフォルトで全員
 - `anchoredfreecam.reload` — デフォルトでOP
 
-## config.yml
+## 対応環境
 
-```yaml
-max-distance: 5.0
-hide-player-from-others: true
-invulnerable: true
-disable-entity-collision: true
-show-boundary-message: true
-```
+- Minecraft Java: **26.2**
+- Paper/Purpur: **26.2**
+- Java: **25**
+- クライアントMod: 不要
 
 ## ビルド
-
-Java 21:
 
 ```bash
 gradle build
@@ -59,5 +88,5 @@ gradle build
 生成物:
 
 ```text
-build/libs/AnchoredFreecam-1.0.0.jar
+build/libs/AnchoredFreecam-1.1.0.jar
 ```
