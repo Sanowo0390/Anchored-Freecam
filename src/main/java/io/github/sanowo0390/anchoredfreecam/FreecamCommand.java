@@ -88,6 +88,7 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
 
             plugin.getConfig().set("max-distance-blocks", range);
             plugin.saveConfig();
+            manager.enforceCurrentRange();
 
             sender.sendMessage(Component.text(
                     "Freecam範囲を " + format(range) + " マスに変更しました。",
