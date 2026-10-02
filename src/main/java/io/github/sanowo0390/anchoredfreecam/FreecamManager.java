@@ -40,6 +40,15 @@ final class FreecamManager {
         return sessions.get(player.getUniqueId());
     }
 
+    Mannequin getBody(Player player) {
+        FreecamSession session = getSession(player);
+        if (session == null || session.bodyUuid() == null) {
+            return null;
+        }
+        Entity entity = plugin.getServer().getEntity(session.bodyUuid());
+        return entity instanceof Mannequin mannequin ? mannequin : null;
+    }
+
     double getMaxDistance() {
         if (plugin.getConfig().contains("max-distance-blocks")) {
             return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 5.0D));
@@ -82,6 +91,7 @@ final class FreecamManager {
                 player.isFlying(),
                 player.isInvulnerable(),
                 player.isCollidable(),
+                player.isInvisible(),
                 player.isGliding(),
                 player.getFallDistance()
         );
@@ -96,6 +106,7 @@ final class FreecamManager {
         player.setAllowFlight(true);
         player.setFlying(true);
         player.setFallDistance(0.0F);
+        player.setInvisible(true);
 
         if (plugin.getConfig().getBoolean("protect-camera-player", true)) {
             player.setInvulnerable(true);
@@ -320,6 +331,7 @@ final class FreecamManager {
         restoreVisibility(player);
         player.setInvulnerable(session.invulnerable());
         player.setCollidable(session.collidable());
+        player.setInvisible(session.invisible());
         player.setAllowFlight(session.allowFlight());
         player.setFlying(session.allowFlight() && session.flying());
         player.setGliding(session.gliding());
