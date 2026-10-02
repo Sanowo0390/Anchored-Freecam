@@ -12,10 +12,18 @@ leave-body-at-anchor: true
 # to the anchor, then forward that damage to the real player.
 exit-on-body-damage: true
 
-# Hide the real moving player entity (the camera) from human players only.
-# The real Player is NOT set invisible, so hostile mob AI can still acquire it
-# and AnchoredFreecam can redirect that target to the body proxy.
+# Hide the real moving Player (the camera).
+# Human players are hidden with hidePlayer(), and the camera Player also receives
+# the invisible entity flag so its model is not visible.
 hide-camera-player-from-others: true
+
+# Continuously keep normal hostile Monster targets on the anchored Mannequin.
+# This is needed because vanilla mob target selectors normally target Player,
+# not Mannequin.
+force-hostile-mob-aggro: true
+
+# Cubic scan radius around each anchored body for hostile mobs.
+mob-aggro-radius-blocks: 32.0
 
 # Prevent environmental/other damage from affecting the moving camera entity.
 # Damage received by the body proxy is handled separately above.
