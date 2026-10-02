@@ -1,0 +1,14 @@
+# Maximum 3D distance from the location where freecam was enabled.
+max-distance: 5.0
+
+# Hide the moving camera/player entity from other players.
+hide-player-from-others: true
+
+# Prevent damage while in freecam.
+invulnerable: true
+
+# Disable entity-to-entity collision. Block collision stays enabled.
+disable-entity-collision: true
+
+# Warn in the action bar when crossing the radius boundary.
+show-boundary-message: true
