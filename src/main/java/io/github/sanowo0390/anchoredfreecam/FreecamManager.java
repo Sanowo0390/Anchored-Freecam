@@ -332,6 +332,26 @@ final class FreecamManager {
         }
     }
 
+    void enforceCurrentRange() {
+        double max = getMaxDistance();
+        double maxSquared = max * max;
+
+        for (UUID uuid : sessions.keySet()) {
+            Player player = plugin.getServer().getPlayer(uuid);
+            FreecamSession session = sessions.get(uuid);
+            if (player == null || session == null || !player.isOnline()) {
+                continue;
+            }
+
+            Location current = player.getLocation();
+            if (current.getWorld() != session.anchor().getWorld()
+                    || current.distanceSquared(session.anchor()) > maxSquared) {
+                boundaryNotice(player);
+                queueBoundaryReturn(player, current.getYaw(), current.getPitch());
+            }
+        }
+    }
+
     void boundaryNotice(Player player) {
         if (!plugin.getConfig().getBoolean("show-boundary-message", true)) {
             return;
