@@ -8,6 +8,7 @@ import org.bukkit.Location;
 import org.bukkit.damage.DamageSource;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mannequin;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
@@ -24,8 +25,10 @@ final class FreecamManager {
     private final AnchoredFreecamPlugin plugin;
     private final Map<UUID, FreecamSession> sessions = new HashMap<>();
     private final Map<UUID, UUID> bodyOwners = new HashMap<>();
+    private final Map<UUID, Location> lastLegalLocations = new HashMap<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
     private final Set<UUID> forwardedBodyDamage = new HashSet<>();
+    private final Set<UUID> pendingBoundaryCorrections = new HashSet<>();
     private final Map<UUID, Long> lastBoundaryNotice = new HashMap<>();
 
     FreecamManager(AnchoredFreecamPlugin plugin) {
@@ -96,6 +99,8 @@ final class FreecamManager {
                 player.getFallDistance()
         );
         sessions.put(player.getUniqueId(), session);
+        lastLegalLocations.put(player.getUniqueId(), anchor.clone());
+
         if (bodyUuid != null) {
             bodyOwners.put(bodyUuid, player.getUniqueId());
         }
@@ -106,15 +111,21 @@ final class FreecamManager {
         player.setAllowFlight(true);
         player.setFlying(true);
         player.setFallDistance(0.0F);
-        player.setInvisible(true);
 
+        // Do NOT make the real player invisible. Mob AI uses the real Player entity
+        // for target acquisition. Human clients are hidden separately with hidePlayer().
         if (plugin.getConfig().getBoolean("protect-camera-player", true)) {
             player.setInvulnerable(true);
         }
         if (plugin.getConfig().getBoolean("disable-camera-entity-collision", true)) {
             player.setCollidable(false);
         }
+
         applyCameraVisibility(player);
+
+        if (body != null) {
+            retargetCurrentEnemies(player, body);
+        }
 
         player.sendMessage(message(
                 "Freecam ON — 本体を残したまま、開始地点から "
@@ -125,7 +136,8 @@ final class FreecamManager {
 
     boolean stop(Player player, boolean returnToAnchor, boolean sendMessage) {
         FreecamSession session = sessions.remove(player.getUniqueId());
-        lastBoundaryNotice.remove(player.getUniqueId());
+        clearTransientState(player.getUniqueId());
+
         if (session == null) {
             return false;
         }
@@ -152,13 +164,15 @@ final class FreecamManager {
 
     void stopWithoutReturn(Player player, boolean sendMessage) {
         FreecamSession session = sessions.remove(player.getUniqueId());
-        lastBoundaryNotice.remove(player.getUniqueId());
+        clearTransientState(player.getUniqueId());
+
         if (session == null) {
             return;
         }
 
         removeBody(session);
         restoreState(player, session);
+
         if (sendMessage && player.isOnline()) {
             player.sendMessage(message("Freecamを終了しました。", NamedTextColor.YELLOW));
         }
@@ -170,6 +184,59 @@ final class FreecamManager {
 
     boolean isForwardedBodyDamage(Player player) {
         return forwardedBodyDamage.contains(player.getUniqueId());
+    }
+
+    void updateLastLegalLocation(Player player, Location location) {
+        FreecamSession session = getSession(player);
+        if (session == null || location.getWorld() != session.anchor().getWorld()) {
+            return;
+        }
+
+        double max = getMaxDistance();
+        if (location.distanceSquared(session.anchor()) <= max * max) {
+            lastLegalLocations.put(player.getUniqueId(), location.clone());
+        }
+    }
+
+    void queueBoundaryReturn(Player player, float yaw, float pitch) {
+        UUID uuid = player.getUniqueId();
+        if (!pendingBoundaryCorrections.add(uuid)) {
+            return;
+        }
+
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            try {
+                if (!player.isOnline() || !isActive(player)) {
+                    return;
+                }
+
+                FreecamSession session = getSession(player);
+                if (session == null) {
+                    return;
+                }
+
+                Location safe = lastLegalLocations.get(uuid);
+                if (safe == null || safe.getWorld() != session.anchor().getWorld()) {
+                    safe = session.anchor().clone();
+                } else {
+                    safe = safe.clone();
+                }
+
+                safe.setYaw(yaw);
+                safe.setPitch(pitch);
+
+                internalTeleports.add(uuid);
+                try {
+                    player.teleport(safe, PlayerTeleportEvent.TeleportCause.PLUGIN);
+                } finally {
+                    internalTeleports.remove(uuid);
+                }
+
+                lastLegalLocations.put(uuid, safe.clone());
+            } finally {
+                pendingBoundaryCorrections.remove(uuid);
+            }
+        });
     }
 
     boolean handleBodyDamage(EntityDamageEvent event) {
@@ -215,6 +282,7 @@ final class FreecamManager {
         if (!plugin.getConfig().getBoolean("hide-camera-player-from-others", true)) {
             return;
         }
+
         for (Player viewer : plugin.getServer().getOnlinePlayers()) {
             if (!viewer.getUniqueId().equals(freecamPlayer.getUniqueId())) {
                 viewer.hidePlayer(plugin, freecamPlayer);
@@ -226,6 +294,7 @@ final class FreecamManager {
         if (!plugin.getConfig().getBoolean("hide-camera-player-from-others", true)) {
             return;
         }
+
         for (UUID uuid : sessions.keySet()) {
             Player freecamPlayer = plugin.getServer().getPlayer(uuid);
             if (freecamPlayer != null && !viewer.getUniqueId().equals(uuid)) {
@@ -258,7 +327,8 @@ final class FreecamManager {
 
         lastBoundaryNotice.put(player.getUniqueId(), now);
         player.sendActionBar(Component.text(
-                "Freecamの範囲は本体から " + trimDistance(getMaxDistance()) + " マスです",
+                "Freecamの範囲は本体から " + trimDistance(getMaxDistance())
+                        + " マスです。範囲内へ戻しました。",
                 NamedTextColor.RED));
     }
 
@@ -269,12 +339,21 @@ final class FreecamManager {
                 stop(player, true, false);
             } else {
                 FreecamSession session = sessions.remove(uuid);
+                clearTransientState(uuid);
                 if (session != null) {
                     removeBody(session);
                 }
             }
         }
         bodyOwners.clear();
+    }
+
+    private void retargetCurrentEnemies(Player player, Mannequin body) {
+        for (Entity entity : player.getNearbyEntities(64.0, 64.0, 64.0)) {
+            if (entity instanceof Mob mob && mob.getTarget() == player) {
+                mob.setTarget(body);
+            }
+        }
     }
 
     private Mannequin spawnBody(Player player, Location anchor) {
@@ -306,6 +385,7 @@ final class FreecamManager {
             mannequin.setHealth(Math.min(player.getHealth(), mannequin.getMaxHealth()));
             mannequin.setAbsorptionAmount(player.getAbsorptionAmount());
         });
+
         body.setRotation(anchor.getYaw(), anchor.getPitch());
         return body;
     }
@@ -321,6 +401,7 @@ final class FreecamManager {
         }
 
         bodyOwners.remove(bodyUuid);
+
         Entity body = plugin.getServer().getEntity(bodyUuid);
         if (body != null) {
             body.remove();
@@ -344,6 +425,12 @@ final class FreecamManager {
                 viewer.showPlayer(plugin, player);
             }
         }
+    }
+
+    private void clearTransientState(UUID uuid) {
+        lastLegalLocations.remove(uuid);
+        pendingBoundaryCorrections.remove(uuid);
+        lastBoundaryNotice.remove(uuid);
     }
 
     private Component message(String text, NamedTextColor color) {
