@@ -11,6 +11,7 @@ record FreecamSession(
         boolean flying,
         boolean invulnerable,
         boolean collidable,
+        boolean invisible,
         boolean gliding,
         float fallDistance
 ) {
