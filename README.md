@@ -2,15 +2,16 @@
 
 Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライアントMod不要の制限付きFreecamプラグインです。
 
-## 1.1.2 の主な修正
+## 1.1.3 の主な修正
 
-- Freecam中の実Player（カメラ）を再び不可視化
-- 他プレイヤーからは `hidePlayer()` でも隠す
-- MannequinはVanilla AIの通常のPlayerターゲット候補ではないため、敵対Mobのターゲットをサーバー側で定期的に本体へ維持
-- ゾンビ・スケルトン・クリーパーなどの通常の敵対Monsterは、Freecam中も本体へ敵対する
-- Enderman、通常Piglin、Zombified Piglin、通常Spider、Wardenなど条件付きで敵対するMobは、Freecam開始だけを理由に強制敵対させない
-- すでに実Playerを狙っていたMobは条件付きMobでも本体へターゲットを移す
-- 距離制限を超えた場合はFreecam解除ではなく、最後の正常な範囲内位置へ戻す
+- LuckPerms向けに権限ノードを分離
+- `anchoredfreecam.use` はデフォルト無効
+- `anchoredfreecam.range` を追加
+- `anchoredfreecam.admin` で全権限をまとめて付与可能
+- `/freecam range` で現在の範囲を確認
+- `/freecam range <マス>` で範囲を変更
+- 変更値は `config.yml` に保存
+- 範囲を縮小した際、すでに範囲外のFreecamプレイヤーも即座に範囲内へ戻す
 
 ## 基本仕様
 
@@ -76,12 +77,25 @@ show-boundary-message: true
 - `/freecam on`
 - `/freecam off`
 - `/freecam status`
+- `/freecam range`
+- `/freecam range <マス>`
 - `/freecam reload`
+
+`/freecam range <マス>` は 0.1〜256 マスの範囲で指定できます。
 
 ## 権限
 
-- `anchoredfreecam.use` — デフォルトで全員
-- `anchoredfreecam.reload` — デフォルトでOP
+- `anchoredfreecam.use` — Freecam使用権限
+- `anchoredfreecam.range` — 範囲確認・変更権限
+- `anchoredfreecam.reload` — 設定再読み込み権限
+- `anchoredfreecam.admin` — 上記すべて
+
+LuckPerms例:
+
+```text
+/lp group member permission set anchoredfreecam.use true
+/lp group admin permission set anchoredfreecam.admin true
+```
 
 ## 対応環境
 
@@ -99,5 +113,5 @@ gradle build
 生成物:
 
 ```text
-build/libs/AnchoredFreecam-1.1.2.jar
+build/libs/AnchoredFreecam-1.1.3.jar
 ```
