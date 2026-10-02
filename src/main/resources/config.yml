@@ -1,14 +1,25 @@
-# Maximum 3D distance from the location where freecam was enabled.
-max-distance: 5.0
+# Maximum 3D distance from the anchor, in blocks ("マス").
+# Example: 5 means the camera cannot move farther than 5 blocks from the body.
+max-distance-blocks: 5.0
 
-# Hide the moving camera/player entity from other players.
-hide-player-from-others: true
+# Leave a visible/damageable body proxy at the anchor.
+# Paper 26.2 Mannequin is used and receives the player's skin/equipment.
+leave-body-at-anchor: true
 
-# Prevent damage while in freecam.
-invulnerable: true
+# If the body proxy is damaged, immediately end freecam, return the real player
+# to the anchor, then forward that damage to the real player.
+exit-on-body-damage: true
 
-# Disable entity-to-entity collision. Block collision stays enabled.
-disable-entity-collision: true
+# Hide the real moving player entity (the camera) from other players.
+hide-camera-player-from-others: true
+
+# Prevent environmental/other damage from affecting the moving camera entity.
+# Damage received by the body proxy is handled separately above.
+protect-camera-player: true
+
+# Disable entity-to-entity collision for the moving camera.
+# Block collision remains enabled.
+disable-camera-entity-collision: true
 
 # Warn in the action bar when crossing the radius boundary.
 show-boundary-message: true
