@@ -1,6 +1,7 @@
 package io.github.sanowo0390.anchoredfreecam;
 
 import org.bukkit.Location;
+import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
@@ -87,7 +88,7 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        manager.hideActivePlayersFrom(event.getPlayer());
+        manager.hideActiveCamerasFrom(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.LOWEST)
@@ -128,7 +129,14 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDamage(EntityDamageEvent event) {
-        if (event.getEntity() instanceof Player player && manager.isActive(player)) {
+        if (manager.handleBodyDamage(event)) {
+            return;
+        }
+
+        if (event.getEntity() instanceof Player player
+                && manager.isActive(player)
+                && !manager.isForwardedBodyDamage(player)
+                && plugin.getConfig().getBoolean("protect-camera-player", true)) {
             event.setCancelled(true);
         }
     }
@@ -142,7 +150,14 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onTarget(EntityTargetLivingEntityEvent event) {
-        if (event.getTarget() instanceof Player player && manager.isActive(player)) {
+        if (!(event.getTarget() instanceof Player player) || !manager.isActive(player)) {
+            return;
+        }
+
+        Mannequin body = manager.getBody(player);
+        if (body != null && body.isValid()) {
+            event.setTarget(body);
+        } else {
             event.setCancelled(true);
         }
     }
