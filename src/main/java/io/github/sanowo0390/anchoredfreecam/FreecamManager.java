@@ -6,14 +6,23 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.damage.DamageSource;
+import org.bukkit.entity.CaveSpider;
+import org.bukkit.entity.Enderman;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mannequin;
-import org.bukkit.entity.Mob;
+import org.bukkit.entity.Monster;
+import org.bukkit.entity.PigZombie;
+import org.bukkit.entity.Piglin;
+import org.bukkit.entity.PiglinBrute;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Spider;
+import org.bukkit.entity.Warden;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -30,9 +39,16 @@ final class FreecamManager {
     private final Set<UUID> forwardedBodyDamage = new HashSet<>();
     private final Set<UUID> pendingBoundaryCorrections = new HashSet<>();
     private final Map<UUID, Long> lastBoundaryNotice = new HashMap<>();
+    private final BukkitTask aggroTask;
 
     FreecamManager(AnchoredFreecamPlugin plugin) {
         this.plugin = plugin;
+        this.aggroTask = plugin.getServer().getScheduler().runTaskTimer(
+                plugin,
+                this::maintainBodyAggro,
+                1L,
+                2L
+        );
     }
 
     boolean isActive(Player player) {
@@ -112,8 +128,10 @@ final class FreecamManager {
         player.setFlying(true);
         player.setFallDistance(0.0F);
 
-        // Do NOT make the real player invisible. Mob AI uses the real Player entity
-        // for target acquisition. Human clients are hidden separately with hidePlayer().
+        // The moving real Player is only the camera. Keep it visually hidden.
+        // Mob hostility is maintained against the anchored Mannequin separately.
+        player.setInvisible(true);
+
         if (plugin.getConfig().getBoolean("protect-camera-player", true)) {
             player.setInvulnerable(true);
         }
@@ -333,6 +351,8 @@ final class FreecamManager {
     }
 
     void shutdown() {
+        aggroTask.cancel();
+
         for (UUID uuid : Set.copyOf(sessions.keySet())) {
             Player player = plugin.getServer().getPlayer(uuid);
             if (player != null) {
@@ -348,10 +368,76 @@ final class FreecamManager {
         bodyOwners.clear();
     }
 
+    private void maintainBodyAggro() {
+        if (!plugin.getConfig().getBoolean("force-hostile-mob-aggro", true)) {
+            return;
+        }
+
+        double radius = Math.max(1.0D, plugin.getConfig().getDouble("mob-aggro-radius-blocks", 32.0D));
+
+        for (Map.Entry<UUID, FreecamSession> entry : sessions.entrySet()) {
+            Player player = plugin.getServer().getPlayer(entry.getKey());
+            if (player == null || !player.isOnline()) {
+                continue;
+            }
+
+            Mannequin body = getBody(player);
+            if (body == null || !body.isValid()) {
+                continue;
+            }
+
+            for (Entity entity : body.getNearbyEntities(radius, radius, radius)) {
+                if (!(entity instanceof Monster monster) || !monster.isValid() || !monster.isAware()) {
+                    continue;
+                }
+
+                LivingEntity target = monster.getTarget();
+
+                if (target == body) {
+                    continue;
+                }
+
+                // Do not steal a mob from another legitimate target.
+                if (target != null && target != player) {
+                    continue;
+                }
+
+                // If the mob was already targeting the real camera Player, always
+                // redirect it to the body, even for normally neutral monsters.
+                if (target == player || shouldForceTargetBody(monster)) {
+                    monster.setTarget(body);
+                }
+            }
+        }
+    }
+
+    private boolean shouldForceTargetBody(Monster monster) {
+        // These mobs are conditionally hostile in vanilla. Do not make them angry
+        // just because freecam is enabled; if they were already targeting the
+        // player, maintainBodyAggro() still redirects them to the body.
+        if (monster instanceof Enderman) {
+            return false;
+        }
+        if (monster instanceof Piglin && !(monster instanceof PiglinBrute)) {
+            return false;
+        }
+        if (monster instanceof PigZombie) {
+            return false;
+        }
+        if (monster instanceof Spider && !(monster instanceof CaveSpider)) {
+            return false;
+        }
+        if (monster instanceof Warden) {
+            return false;
+        }
+
+        return true;
+    }
+
     private void retargetCurrentEnemies(Player player, Mannequin body) {
         for (Entity entity : player.getNearbyEntities(64.0, 64.0, 64.0)) {
-            if (entity instanceof Mob mob && mob.getTarget() == player) {
-                mob.setTarget(body);
+            if (entity instanceof Monster monster && monster.getTarget() == player) {
+                monster.setTarget(body);
             }
         }
     }
