@@ -7,14 +7,23 @@ description: Server-side anchored freecam for survival servers, with a damageabl
 website: https://github.com/Sanowo0390/Anchored-Freecam
 commands:
   freecam:
-    description: Toggle AnchoredFreecam.
-    usage: /freecam [on|off|toggle|status|reload]
+    description: AnchoredFreecam commands.
+    usage: /freecam [on|off|toggle|status|range|reload]
     aliases: [fc]
-    permission: anchoredfreecam.use
 permissions:
   anchoredfreecam.use:
-    description: Allows use of /freecam.
-    default: true
+    description: Allows using AnchoredFreecam.
+    default: false
+  anchoredfreecam.range:
+    description: Allows viewing/changing the global freecam range.
+    default: op
   anchoredfreecam.reload:
     description: Allows reloading AnchoredFreecam's configuration.
     default: op
+  anchoredfreecam.admin:
+    description: Grants all AnchoredFreecam permissions.
+    default: op
+    children:
+      anchoredfreecam.use: true
+      anchoredfreecam.range: true
+      anchoredfreecam.reload: true
