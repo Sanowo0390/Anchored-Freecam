@@ -56,34 +56,50 @@ final class FreecamListener implements Listener {
         }
 
         double max = manager.getMaxDistance();
-        double maxSquared = max * max;
-        double toDistanceSquared = to.distanceSquared(session.anchor());
-        if (toDistanceSquared <= maxSquared) {
+        if (to.distanceSquared(session.anchor()) <= max * max) {
+            manager.updateLastLegalLocation(player, to);
             return;
         }
 
-        Location from = event.getFrom();
-        double fromDistanceSquared = from.getWorld() == session.anchor().getWorld()
-                ? from.distanceSquared(session.anchor())
-                : Double.MAX_VALUE;
-
-        if (fromDistanceSquared > maxSquared && toDistanceSquared < fromDistanceSquared) {
-            return;
-        }
-
-        Location blocked = from.clone();
-        blocked.setYaw(to.getYaw());
-        blocked.setPitch(to.getPitch());
-        event.setTo(blocked);
+        // Never end freecam just because the player crossed the radius.
+        // Cancel the illegal move, then hard-correct the client/server position
+        // to the last valid location on the next tick.
+        event.setCancelled(true);
         manager.boundaryNotice(player);
+        manager.queueBoundaryReturn(player, to.getYaw(), to.getPitch());
     }
 
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
-        if (manager.isActive(player) && !manager.isInternalTeleport(player)) {
-            manager.stopWithoutReturn(player, true);
+        FreecamSession session = manager.getSession(player);
+        if (session == null || manager.isInternalTeleport(player)) {
+            return;
         }
+
+        Location to = event.getTo();
+        if (to == null) {
+            return;
+        }
+
+        // A cross-world teleport cannot keep the anchored body in sync, so keep
+        // the old behavior there: end freecam and let the teleport continue.
+        if (to.getWorld() != session.anchor().getWorld()) {
+            manager.stopWithoutReturn(player, true);
+            return;
+        }
+
+        double max = manager.getMaxDistance();
+        if (to.distanceSquared(session.anchor()) <= max * max) {
+            manager.updateLastLegalLocation(player, to);
+            return;
+        }
+
+        // Plugins, anti-cheat corrections, commands, etc. must not be able to
+        // place the camera outside the configured radius while freecam is active.
+        event.setCancelled(true);
+        manager.boundaryNotice(player);
+        manager.queueBoundaryReturn(player, to.getYaw(), to.getPitch());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -117,6 +133,7 @@ final class FreecamListener implements Listener {
         if (!manager.isActive(event.getPlayer()) || event.isFlying()) {
             return;
         }
+
         event.setCancelled(true);
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             Player player = event.getPlayer();
