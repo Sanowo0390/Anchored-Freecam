@@ -7,10 +7,10 @@ language: ja
 fallback-language: ja
 
 # Maximum 3D distance from the anchor, in blocks ("マス").
-# Default: 20
+# Default: 15
 # Crossing the boundary does NOT end freecam; the camera is returned to
 # its last valid in-range position.
-max-distance-blocks: 20.0
+max-distance-blocks: 15.0
 
 # Leave a visible/damageable body proxy at the anchor.
 # Paper 26.2 Mannequin is used and receives the player's skin/equipment.
