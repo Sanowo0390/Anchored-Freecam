@@ -2,7 +2,7 @@
 
 Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライアントMod不要の制限付きFreecamプラグインです。
 
-## 1.1.6 の主な変更
+## 1.1.7 の主な変更
 
 - デフォルト範囲を **15マス** に変更
 - 言語をJavaコード内固定から **外部YAML方式** へ変更
@@ -16,6 +16,12 @@ Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライア�
 - カメラが水中に入っても呼吸を消費しない
 - 本体が水中なら本体側の残り空気を呼吸ゲージへ反映
 - カメラの水中浮力を抑制し、上下入力していない時の受動的なY移動を止める
+- 水中の受動Y移動を PlayerMoveEvent と PlayerVelocityEvent の両方で抑制
+- アンカー側Mannequinに実プレイヤー名のネームプレートを表示
+- 幽体カメラPlayerは invisible + hidePlayer + visibleByDefault=false でより強く非表示化
+- `/tpa`・`/tpaccept`・Homes・管理者 `/tp` などの外部Teleportに対応
+- Freecam中の本人が外部Teleportされる場合はFreecamを終了してTeleportを許可
+- 他人がFreecam中プレイヤーへTeleportする場合、幽体座標ではなくアンカー本体座標へ自動リダイレクト
 
 ## 言語ファイル
 
@@ -200,5 +206,18 @@ gradle build
 生成物:
 
 ```text
-build/libs/AnchoredFreecam-1.1.6.jar
+build/libs/AnchoredFreecam-1.1.7.jar
 ```
+
+
+## TPA / 外部Teleport
+
+Freecam中のPlayer Entityはカメラ位置に存在するため、通常のTPAプラグインはそのままだと幽体座標を参照します。
+
+1.1.7では `COMMAND` / `PLUGIN` 原因のTeleportを汎用的に処理します。
+
+- Freecam中の本人がTeleportされる: Freecamを終了し、そのTeleportを通常どおり実行
+- 他プレイヤーがFreecam中の人のカメラ座標へTeleportされる: 宛先をMannequin本体へ変更
+- 特定のTPAプラグインAPIには依存しないため、一般的なTPA/Homes/管理者TPで利用可能
+
+`teleport-camera-match-radius-blocks` は、Teleport先が幽体カメラ位置とどれだけ近ければ「そのPlayerへのTeleport」と判定するかを指定します。
