@@ -20,10 +20,12 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
 
     private final AnchoredFreecamPlugin plugin;
     private final FreecamManager manager;
+    private final Messages messages;
 
-    FreecamCommand(AnchoredFreecamPlugin plugin, FreecamManager manager) {
+    FreecamCommand(AnchoredFreecamPlugin plugin, FreecamManager manager, Messages messages) {
         this.plugin = plugin;
         this.manager = manager;
+        this.messages = messages;
     }
 
     @Override
@@ -43,8 +45,47 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
 
             plugin.reloadConfig();
             manager.refreshVisibility();
+            manager.enforceCurrentRange();
+
             sender.sendMessage(Component.text(
-                    "AnchoredFreecam の設定を再読み込みしました。",
+                    messages.text("reloaded"),
+                    NamedTextColor.GREEN));
+            return true;
+        }
+
+        if (sub.equals("language") || sub.equals("lang")) {
+            if (!sender.hasPermission("anchoredfreecam.language")) {
+                noPermission(sender);
+                return true;
+            }
+
+            if (args.length == 1) {
+                sender.sendMessage(Component.text(
+                        messages.text("current-language", "language", messages.language()),
+                        NamedTextColor.AQUA));
+                return true;
+            }
+
+            if (args.length != 2) {
+                sender.sendMessage(Component.text(
+                        messages.text("language-usage", "label", label),
+                        NamedTextColor.YELLOW));
+                return true;
+            }
+
+            if (!messages.isSupported(args[1])) {
+                sender.sendMessage(Component.text(
+                        messages.text("language-unsupported"),
+                        NamedTextColor.RED));
+                return true;
+            }
+
+            String language = messages.normalizeLanguage(args[1]);
+            plugin.getConfig().set("language", language);
+            plugin.saveConfig();
+
+            sender.sendMessage(Component.text(
+                    messages.text("language-set", "language", language),
                     NamedTextColor.GREEN));
             return true;
         }
@@ -57,14 +98,16 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
 
             if (args.length == 1) {
                 sender.sendMessage(Component.text(
-                        "現在のFreecam範囲: " + format(manager.getMaxDistance()) + " マス",
+                        messages.text(
+                                "current-range",
+                                "range", format(manager.getMaxDistance())),
                         NamedTextColor.AQUA));
                 return true;
             }
 
             if (args.length != 2) {
                 sender.sendMessage(Component.text(
-                        "使い方: /" + label + " range <マス>",
+                        messages.text("range-usage", "label", label),
                         NamedTextColor.YELLOW));
                 return true;
             }
@@ -74,14 +117,17 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
                 range = Double.parseDouble(args[1]);
             } catch (NumberFormatException ex) {
                 sender.sendMessage(Component.text(
-                        "範囲は数値で指定してください。",
+                        messages.text("range-number"),
                         NamedTextColor.RED));
                 return true;
             }
 
             if (!Double.isFinite(range) || range < MIN_RANGE || range > MAX_RANGE) {
                 sender.sendMessage(Component.text(
-                        "範囲は " + format(MIN_RANGE) + " ～ " + format(MAX_RANGE) + " マスで指定してください。",
+                        messages.text(
+                                "range-limits",
+                                "min", format(MIN_RANGE),
+                                "max", format(MAX_RANGE)),
                         NamedTextColor.RED));
                 return true;
             }
@@ -91,14 +137,14 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
             manager.enforceCurrentRange();
 
             sender.sendMessage(Component.text(
-                    "Freecam範囲を " + format(range) + " マスに変更しました。",
+                    messages.text("range-set", "range", format(range)),
                     NamedTextColor.GREEN));
             return true;
         }
 
         if (!(sender instanceof Player player)) {
             sender.sendMessage(Component.text(
-                    "プレイヤー以外は /freecam range または /freecam reload を使用できます。",
+                    messages.text("console-usage"),
                     NamedTextColor.RED));
             return true;
         }
@@ -119,7 +165,7 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
             case "on" -> {
                 if (manager.isActive(player)) {
                     player.sendMessage(Component.text(
-                            "FreecamはすでにONです。",
+                            messages.text("already-on"),
                             NamedTextColor.YELLOW));
                 } else {
                     manager.start(player);
@@ -128,16 +174,21 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
             case "off" -> {
                 if (!manager.stop(player, true, true)) {
                     player.sendMessage(Component.text(
-                            "FreecamはすでにOFFです。",
+                            messages.text("already-off"),
                             NamedTextColor.YELLOW));
                 }
             }
-            case "status" -> player.sendMessage(Component.text(
-                    "Freecam: " + (manager.isActive(player) ? "ON" : "OFF")
-                            + " / 半径 " + format(manager.getMaxDistance()) + " マス",
-                    manager.isActive(player) ? NamedTextColor.GREEN : NamedTextColor.GRAY));
+            case "status" -> {
+                boolean active = manager.isActive(player);
+                player.sendMessage(Component.text(
+                        messages.text(
+                                "status",
+                                "state", messages.text(active ? "state-on" : "state-off"),
+                                "range", format(manager.getMaxDistance())),
+                        active ? NamedTextColor.GREEN : NamedTextColor.GRAY));
+            }
             default -> player.sendMessage(Component.text(
-                    "使い方: /" + label + " [on|off|toggle|status|range|reload]",
+                    messages.text("usage", "label", label),
                     NamedTextColor.YELLOW));
         }
 
@@ -160,6 +211,9 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
             if (sender.hasPermission("anchoredfreecam.range")) {
                 candidates.add("range");
             }
+            if (sender.hasPermission("anchoredfreecam.language")) {
+                candidates.add("language");
+            }
             if (sender.hasPermission("anchoredfreecam.reload")) {
                 candidates.add("reload");
             }
@@ -173,7 +227,13 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2
                 && args[0].equalsIgnoreCase("range")
                 && sender.hasPermission("anchoredfreecam.range")) {
-            return List.of("5", "10", "15", "20");
+            return List.of("20", "10", "30", "50");
+        }
+
+        if (args.length == 2
+                && (args[0].equalsIgnoreCase("language") || args[0].equalsIgnoreCase("lang"))
+                && sender.hasPermission("anchoredfreecam.language")) {
+            return List.of("ja", "en");
         }
 
         return List.of();
@@ -181,7 +241,7 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
 
     private void noPermission(CommandSender sender) {
         sender.sendMessage(Component.text(
-                "この操作を行う権限がありません。",
+                messages.text("no-permission"),
                 NamedTextColor.RED));
     }
 
