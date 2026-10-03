@@ -114,13 +114,30 @@ final class FreecamListener implements Listener {
             return;
         }
 
-        // If the freecam player themselves is teleported by a command/plugin
-        // (TPA accept, homes, admin /tp, etc.), end freecam first and allow the
-        // requested teleport to proceed normally instead of moving the ghost.
-        if (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN
-                || event.getCause() == PlayerTeleportEvent.TeleportCause.COMMAND) {
+        // Explicit command teleports are intentional and should end freecam.
+        if (event.getCause() == PlayerTeleportEvent.TeleportCause.COMMAND) {
             manager.stopWithoutReturn(player, true);
             return;
+        }
+
+        // PLUGIN is a generic Bukkit cause, not a TPA-specific cause. Small,
+        // same-world corrections (anti-cheat, movement reconciliation, etc.)
+        // must not eject the player from freecam.
+        if (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN) {
+            if (to.getWorld() != event.getFrom().getWorld()) {
+                manager.stopWithoutReturn(player, true);
+                return;
+            }
+
+            double correctionMax = Math.max(0.0D,
+                    plugin.getConfig().getDouble("plugin-teleport-correction-max-distance-blocks", 2.0D));
+            double correctionMaxSquared = correctionMax * correctionMax;
+            double displacementSquared = event.getFrom().distanceSquared(to);
+
+            if (displacementSquared > correctionMaxSquared) {
+                manager.stopWithoutReturn(player, true);
+                return;
+            }
         }
 
         // Cross-world teleports also end freecam and proceed normally.
