@@ -16,6 +16,9 @@ max-distance-blocks: 15.0
 # Paper 26.2 Mannequin is used and receives the player's skin/equipment.
 leave-body-at-anchor: true
 
+# Show the real player's name above the anchored Mannequin body.
+show-body-nameplate: true
+
 # If the body proxy is damaged, immediately end freecam, return the real player
 # to the anchor, then forward that damage to the real player.
 exit-on-body-damage: true
@@ -43,3 +46,13 @@ disable-camera-entity-collision: true
 
 # Warn in the action bar when the camera is returned inside the radius.
 show-boundary-message: true
+
+
+# Generic TPA / teleport-plugin compatibility.
+# If another player is teleported to the moving freecam camera position,
+# rewrite that destination to the anchored body instead.
+redirect-teleports-to-body: true
+
+# How close an external teleport destination must be to the camera position
+# before it is treated as a teleport "to that player".
+teleport-camera-match-radius-blocks: 0.75
