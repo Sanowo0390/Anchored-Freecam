@@ -255,12 +255,28 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInteractEntity(PlayerInteractEntityEvent event) {
-        if (manager.isActive(event.getPlayer())) event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (!manager.isActive(player)) {
+            return;
+        }
+
+        event.setCancelled(true);
+        if (manager.isOwnBody(player, event.getRightClicked())) {
+            manager.stop(player, true, true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInteractAtEntity(PlayerInteractAtEntityEvent event) {
-        if (manager.isActive(event.getPlayer())) event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (!manager.isActive(player)) {
+            return;
+        }
+
+        event.setCancelled(true);
+        if (manager.isOwnBody(player, event.getRightClicked())) {
+            manager.stop(player, true, true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
