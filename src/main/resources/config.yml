@@ -58,6 +58,10 @@ redirect-teleports-to-body: true
 teleport-camera-match-radius-blocks: 0.75
 
 
-# Small same-world PLUGIN teleports are treated as movement corrections
-# instead of intentional TPA/Home teleports, so they do not end freecam.
-plugin-teleport-correction-max-distance-blocks: 3.0
+# Log movement/flight/air/body state and the reason freecam ends.
+# Enable temporarily for reproduction, then use /freecam reload.
+debug-water: false
+
+# 1.1.11 no longer uses plugin-teleport-correction-max-distance-blocks.
+# Internal corrections are explicitly owned, not guessed from distance.
+# Existing copies of that old option can be removed (they are ignored).

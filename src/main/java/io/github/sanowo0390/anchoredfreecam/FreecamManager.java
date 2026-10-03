@@ -40,7 +40,11 @@ final class FreecamManager {
     private final Map<UUID, Location> lastLegalLocations = new HashMap<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
     private final Set<UUID> forwardedBodyDamage = new HashSet<>();
-    private final Set<UUID> pendingBoundaryCorrections = new HashSet<>();
+    private record CameraCorrection(FreecamSession session, Location destination) {}
+    private final Map<UUID, CameraCorrection> pendingCorrections = new HashMap<>();
+    private final Set<UUID> synchronizingAir = new HashSet<>();
+    private final Map<UUID, Long> lastMovementTrace = new HashMap<>();
+    private int environmentTicks;
     private final Map<UUID, Long> lastBoundaryNotice = new HashMap<>();
     private final BukkitTask aggroTask;
     private final BukkitTask environmentTask;
@@ -169,6 +173,8 @@ final class FreecamManager {
             retargetCurrentEnemies(player, body);
         }
 
+        trace(player, "start");
+
         player.sendMessage(message(
                 messages.text("freecam-enabled", "range", trimDistance(getMaxDistance())),
                 NamedTextColor.GREEN));
@@ -176,6 +182,7 @@ final class FreecamManager {
     }
 
     boolean stop(Player player, boolean returnToAnchor, boolean sendMessage) {
+        trace(player, "stop return=" + returnToAnchor);
         FreecamSession session = sessions.remove(player.getUniqueId());
         clearTransientState(player.getUniqueId());
 
@@ -194,7 +201,8 @@ final class FreecamManager {
         float bodyFallDistance = body != null && body.isValid()
                 ? body.getFallDistance()
                 : session.fallDistance();
-        boolean bodyAirborne = body != null && body.isValid() && !body.isOnGround();
+        boolean bodyPhysical = body != null && body.isValid()
+                && (!body.isOnGround() || WaterContact.touches(body));
 
         removeBody(session);
 
@@ -209,7 +217,7 @@ final class FreecamManager {
 
         restoreState(player, session);
         player.setRemainingAir(finalAir);
-        if (returnToAnchor && bodyAirborne) {
+        if (returnToAnchor && bodyPhysical) {
             player.setFallDistance(bodyFallDistance);
             player.setVelocity(bodyVelocity);
         }
@@ -222,6 +230,7 @@ final class FreecamManager {
     }
 
     void stopWithoutReturn(Player player, boolean sendMessage) {
+        trace(player, "stop external-teleport");
         FreecamSession session = sessions.remove(player.getUniqueId());
         clearTransientState(player.getUniqueId());
 
@@ -261,42 +270,52 @@ final class FreecamManager {
     }
 
     void queueBoundaryReturn(Player player, float yaw, float pitch) {
-        UUID uuid = player.getUniqueId();
-        if (!pendingBoundaryCorrections.add(uuid)) {
-            return;
+        FreecamSession session = getSession(player);
+        if (session == null) return;
+        Location safe = lastLegalLocations.get(player.getUniqueId());
+        double max = getMaxDistance();
+        if (safe == null || safe.getWorld() != session.anchor().getWorld()
+                || safe.distanceSquared(session.anchor()) > max * max) {
+            safe = session.anchor().clone();
+        } else {
+            safe = safe.clone();
         }
+        safe.setYaw(yaw);
+        safe.setPitch(pitch);
+        queueCameraCorrection(player, safe);
+    }
+
+    void queueCameraCorrection(Player player, Location destination) {
+        FreecamSession session = getSession(player);
+        if (session == null) return;
+        UUID uuid = player.getUniqueId();
+        CameraCorrection previous = pendingCorrections.put(uuid, new CameraCorrection(session, destination.clone()));
+        if (previous != null && previous.session() == session) return;
 
         plugin.getServer().getScheduler().runTask(plugin, () -> {
-            try {
-                if (!player.isOnline() || !isActive(player)) {
-                    return;
-                }
-
-                FreecamSession session = getSession(player);
-                if (session == null) {
-                    return;
-                }
-
-                Location safe = lastLegalLocations.get(uuid);
-                if (safe == null || safe.getWorld() != session.anchor().getWorld()) {
-                    safe = session.anchor().clone();
-                } else {
-                    safe = safe.clone();
-                }
-
+            CameraCorrection correction = pendingCorrections.get(uuid);
+            if (correction == null || correction.session() != session) return;
+            pendingCorrections.remove(uuid);
+            if (!player.isOnline() || getSession(player) != session) return;
+            syncAnchorToBody(session);
+            Location safe = correction.destination().clone();
+            double max = getMaxDistance();
+            if (safe.getWorld() != session.anchor().getWorld()
+                    || safe.distanceSquared(session.anchor()) > max * max) {
+                float yaw = safe.getYaw();
+                float pitch = safe.getPitch();
+                safe = session.anchor().clone();
                 safe.setYaw(yaw);
                 safe.setPitch(pitch);
-
-                internalTeleports.add(uuid);
-                try {
-                    player.teleport(safe, PlayerTeleportEvent.TeleportCause.PLUGIN);
-                } finally {
-                    internalTeleports.remove(uuid);
+            }
+            internalTeleports.add(uuid);
+            try {
+                if (player.teleport(safe, PlayerTeleportEvent.TeleportCause.PLUGIN)) {
+                    updateLastLegalLocation(player, player.getLocation());
+                    player.setFallDistance(0.0F);
                 }
-
-                lastLegalLocations.put(uuid, safe.clone());
             } finally {
-                pendingBoundaryCorrections.remove(uuid);
+                internalTeleports.remove(uuid);
             }
         });
     }
@@ -323,10 +342,13 @@ final class FreecamManager {
 
         if (event.getCause() == EntityDamageEvent.DamageCause.DROWNING
                 && event.getEntity() instanceof Mannequin body
-                && !body.getEyeLocation().getBlock().isLiquid()) {
+                && !body.isUnderWater()) {
+            trace(player, "body-drowning-ignored");
             body.setRemainingAir(body.getMaximumAir());
             return true;
         }
+
+        trace(player, "body-damage cause=" + event.getCause() + " damage=" + event.getDamage());
 
         double damage = event.getDamage();
         DamageSource damageSource = event.getDamageSource();
@@ -480,7 +502,8 @@ final class FreecamManager {
     }
 
     private void maintainBodyEnvironment() {
-        for (Map.Entry<UUID, FreecamSession> entry : sessions.entrySet()) {
+        environmentTicks++;
+        for (Map.Entry<UUID, FreecamSession> entry : Map.copyOf(sessions).entrySet()) {
             Player player = plugin.getServer().getPlayer(entry.getKey());
             FreecamSession session = entry.getValue();
 
@@ -489,11 +512,16 @@ final class FreecamManager {
             }
 
             Mannequin body = getBody(player);
-            if (body != null && body.isValid() && !body.isImmovable()) {
+            if (body != null && body.isValid()) {
                 syncAnchorToBody(session);
 
-                // Once the proxy body reaches the ground, freeze it there.
-                if (body.isOnGround()) {
+                // A body in water retains native current/buoyancy physics. Only
+                // a dry grounded body is anchored; falling into water stays physical.
+                boolean physical = !body.isOnGround() || WaterContact.touches(body);
+                if (physical) {
+                    body.setImmovable(false);
+                    body.setGravity(true);
+                } else if (!body.isImmovable()) {
                     body.setVelocity(new Vector());
                     body.setGravity(false);
                     body.setImmovable(true);
@@ -528,18 +556,10 @@ final class FreecamManager {
             // Water must not physically carry the detached camera upward.
             // isInWater() can oscillate at the surface, so also check the feet
             // and eye blocks to keep the correction active across the boundary.
-            boolean cameraTouchingWater = player.isInWater()
-                    || player.getLocation().getBlock().isLiquid()
-                    || player.getEyeLocation().getBlock().isLiquid();
+            boolean cameraTouchingWater = WaterContact.touches(player);
             if (cameraTouchingWater) {
-                Input input = player.getCurrentInput();
-                if (!input.isJump() && !input.isSneak()) {
-                    Vector velocity = player.getVelocity();
-                    if (Math.abs(velocity.getY()) > 1.0E-4D) {
-                        velocity.setY(0.0D);
-                        player.setVelocity(velocity);
-                    }
-                }
+                Vector velocity = WaterContact.cameraVelocity(player.getCurrentInput(), player.getVelocity());
+                if (!velocity.equals(player.getVelocity())) player.setVelocity(velocity);
             }
 
             player.setFallDistance(0.0F);
@@ -551,9 +571,42 @@ final class FreecamManager {
             int clampedAir = Math.max(0, Math.min(air, player.getMaximumAir()));
 
             if (player.getRemainingAir() != clampedAir) {
-                player.setRemainingAir(clampedAir);
+                synchronizingAir.add(player.getUniqueId());
+                try {
+                    player.setRemainingAir(clampedAir);
+                } finally {
+                    synchronizingAir.remove(player.getUniqueId());
+                }
             }
+            if (environmentTicks % 20 == 0) trace(player, "environment");
         }
+    }
+
+    boolean isSynchronizingAir(Player player) {
+        return synchronizingAir.contains(player.getUniqueId());
+    }
+
+    void trace(Player player, String reason) {
+        if (!plugin.getConfig().getBoolean("debug-water", false) || !isActive(player)) return;
+        if (reason.equals("water-move-correction")) {
+            long now = System.nanoTime();
+            Long previous = lastMovementTrace.get(player.getUniqueId());
+            if (previous != null && now - previous < 1_000_000_000L) return;
+            lastMovementTrace.put(player.getUniqueId(), now);
+        }
+        Mannequin body = getBody(player);
+        Input input = player.getCurrentInput();
+        plugin.getLogger().info("[water-debug] player=" + player.getName() + " reason=" + reason
+                + " camera=" + player.getLocation() + " velocity=" + player.getVelocity()
+                + " flying=" + player.isFlying() + " allowFlight=" + player.getAllowFlight()
+                + " swimming=" + player.isSwimming() + " water=" + WaterContact.touches(player)
+                + " air=" + player.getRemainingAir() + " jump=" + input.isJump() + " sneak=" + input.isSneak()
+                + " forward=" + input.isForward() + " backward=" + input.isBackward()
+                + " left=" + input.isLeft() + " right=" + input.isRight()
+                + (body == null ? " body=none" : " body=" + body.getLocation() + " velocity=" + body.getVelocity()
+                + " ground=" + body.isOnGround() + " immovable=" + body.isImmovable()
+                + " underwater=" + body.isUnderWater() + " air=" + body.getRemainingAir()
+                + " pose=" + body.getPose() + " fall=" + body.getFallDistance()));
     }
 
     private Mannequin getBody(FreecamSession session) {
@@ -573,6 +626,7 @@ final class FreecamManager {
 
         Location bodyLocation = body.getLocation();
         Location anchor = session.anchor();
+        anchor.setWorld(bodyLocation.getWorld());
         anchor.setX(bodyLocation.getX());
         anchor.setY(bodyLocation.getY());
         anchor.setZ(bodyLocation.getZ());
@@ -672,7 +726,7 @@ final class FreecamManager {
             mannequin.setProfile(ResolvableProfile.resolvableProfile(player.getPlayerProfile()));
             mannequin.setMainHand(player.getMainHand());
 
-            boolean airborne = !player.isOnGround() && !player.isInWater();
+            boolean airborne = !player.isOnGround() || WaterContact.touches(player);
             mannequin.setImmovable(!airborne);
             mannequin.setGravity(airborne);
             mannequin.setAI(false);
@@ -692,7 +746,7 @@ final class FreecamManager {
             }
 
             if (Mannequin.validPoses().contains(player.getPose())) {
-                mannequin.setPose(player.getPose());
+                mannequin.setPose(player.getPose(), true);
             }
 
             EntityEquipment equipment = mannequin.getEquipment();
@@ -708,6 +762,9 @@ final class FreecamManager {
             mannequin.setAbsorptionAmount(player.getAbsorptionAmount());
             mannequin.setMaximumAir(player.getMaximumAir());
             mannequin.setRemainingAir(player.getRemainingAir());
+            // Preserve starting breathing / slow-falling effects on the physical
+            // body as well as its equipment. Native duration ticking remains active.
+            mannequin.addPotionEffects(player.getActivePotionEffects());
         });
 
         body.setRotation(anchor.getYaw(), anchor.getPitch());
@@ -759,8 +816,10 @@ final class FreecamManager {
 
     private void clearTransientState(UUID uuid) {
         lastLegalLocations.remove(uuid);
-        pendingBoundaryCorrections.remove(uuid);
+        pendingCorrections.remove(uuid);
         lastBoundaryNotice.remove(uuid);
+        lastMovementTrace.remove(uuid);
+        synchronizingAir.remove(uuid);
     }
 
     private Component message(String text, NamedTextColor color) {

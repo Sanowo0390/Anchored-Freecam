@@ -12,6 +12,8 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityAirChangeEvent;
+import org.bukkit.event.entity.EntityToggleSwimEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -63,20 +65,32 @@ final class FreecamListener implements Listener {
 
         // A detached camera must not inherit passive water/bubble-column lift.
         // Keep deliberate jump/sneak vertical control, but pin passive Y movement.
-        boolean cameraInWater = player.isInWater()
-                || from.getBlock().isLiquid()
-                || to.getBlock().isLiquid();
+        boolean cameraInWater = WaterContact.touches(player) || WaterContact.at(to);
+        boolean correctedWaterMove = false;
+        if (cameraInWater && !WaterContact.horizontalInput(input)
+                && (Math.abs(to.getX() - from.getX()) > 1.0E-5D || Math.abs(to.getZ() - from.getZ()) > 1.0E-5D)) {
+            to = to.clone();
+            to.setX(from.getX());
+            to.setZ(from.getZ());
+            correctedWaterMove = true;
+        }
         if (cameraInWater && !input.isJump() && !input.isSneak()
                 && Math.abs(to.getY() - from.getY()) > 1.0E-5D) {
             Location corrected = to.clone();
             corrected.setY(from.getY());
-            event.setTo(corrected);
             to = corrected;
+            correctedWaterMove = true;
         }
 
         double max = manager.getMaxDistance();
         if (to.distanceSquared(session.anchor()) <= max * max) {
-            manager.updateLastLegalLocation(player, to);
+            if (correctedWaterMove) {
+                // Do not setTo(): a server-generated PLUGIN teleport loses our
+                // ownership marker. Apply this correction explicitly next tick.
+                event.setCancelled(true);
+                manager.queueCameraCorrection(player, to);
+                manager.trace(player, "water-move-correction");
+            }
             return;
         }
 
@@ -92,16 +106,14 @@ final class FreecamListener implements Listener {
     public void onTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
         Location to = event.getTo();
-        if (to == null) {
+        if (to == null || manager.isInternalTeleport(player)) {
             return;
         }
 
         // Generic TPA / teleport-plugin support:
         // if another player is being teleported to a freecam camera position,
         // rewrite the destination to the anchored body instead.
-        if (!manager.isActive(player)
-                && (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN
-                || event.getCause() == PlayerTeleportEvent.TeleportCause.COMMAND)) {
+        if (isExternalTeleport(event)) {
             Location redirected = manager.redirectedTeleportDestination(player, to);
             if (redirected != null) {
                 event.setTo(redirected);
@@ -110,45 +122,17 @@ final class FreecamListener implements Listener {
         }
 
         FreecamSession session = manager.getSession(player);
-        if (session == null || manager.isInternalTeleport(player)) {
+        if (session == null) {
             return;
         }
 
-        // Explicit command teleports are intentional and should end freecam.
-        if (event.getCause() == PlayerTeleportEvent.TeleportCause.COMMAND) {
-            manager.stopWithoutReturn(player, true);
-            return;
-        }
-
-        // PLUGIN is a generic Bukkit cause, not a TPA-specific cause. Small,
-        // same-world corrections (anti-cheat, movement reconciliation, etc.)
-        // must not eject the player from freecam.
-        if (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN) {
-            if (to.getWorld() != event.getFrom().getWorld()) {
-                manager.stopWithoutReturn(player, true);
-                return;
-            }
-
-            double correctionMax = Math.max(0.0D,
-                    plugin.getConfig().getDouble("plugin-teleport-correction-max-distance-blocks", 3.0D));
-            double correctionMaxSquared = correctionMax * correctionMax;
-            double displacementSquared = event.getFrom().distanceSquared(to);
-
-            if (displacementSquared > correctionMaxSquared) {
-                manager.stopWithoutReturn(player, true);
-                return;
-            }
-        }
-
-        // Cross-world teleports also end freecam and proceed normally.
+        // Cross-world teleports are finalized at MONITOR, after cancellation.
         if (to.getWorld() != session.anchor().getWorld()) {
-            manager.stopWithoutReturn(player, true);
             return;
         }
 
         double max = manager.getMaxDistance();
         if (to.distanceSquared(session.anchor()) <= max * max) {
-            manager.updateLastLegalLocation(player, to);
             return;
         }
 
@@ -159,6 +143,51 @@ final class FreecamListener implements Listener {
         manager.queueBoundaryReturn(player, to.getYaw(), to.getPitch());
     }
 
+    private boolean isExternalTeleport(PlayerTeleportEvent event) {
+        return event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN
+                || event.getCause() == PlayerTeleportEvent.TeleportCause.COMMAND;
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onTeleportResult(PlayerTeleportEvent event) {
+        Player player = event.getPlayer();
+        FreecamSession session = manager.getSession(player);
+        if (session == null) return;
+        manager.trace(player, "teleport cause=" + event.getCause()
+                + " internal=" + manager.isInternalTeleport(player)
+                + " cancelled=" + event.isCancelled()
+                + " from=" + event.getFrom() + " to=" + event.getTo());
+        if (event.isCancelled() || manager.isInternalTeleport(player) || event.getTo() == null) return;
+        if (isExternalTeleport(event) || event.getTo().getWorld() != session.anchor().getWorld()) {
+            manager.stopWithoutReturn(player, true);
+        } else {
+            manager.updateLastLegalLocation(player, event.getTo());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onMoveResult(PlayerMoveEvent event) {
+        if (!(event instanceof PlayerTeleportEvent) && event.getTo() != null) {
+            manager.updateLastLegalLocation(event.getPlayer(), event.getTo());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onAirChange(EntityAirChangeEvent event) {
+        if (event.getEntity() instanceof Player player && manager.isActive(player)
+                && !manager.isSynchronizingAir(player)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onSwim(EntityToggleSwimEvent event) {
+        if (event.isSwimming() && event.getEntity() instanceof Player player && manager.isActive(player)) {
+            event.setCancelled(true);
+            manager.trace(player, "camera-swim-cancelled");
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
         manager.hideActiveCamerasFrom(event.getPlayer());
@@ -166,20 +195,23 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.LOWEST)
     public void onQuit(PlayerQuitEvent event) {
+        manager.trace(event.getPlayer(), "quit");
         if (manager.isActive(event.getPlayer())) {
             manager.stop(event.getPlayer(), true, false);
         }
     }
 
-    @EventHandler(priority = EventPriority.LOWEST)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onKick(PlayerKickEvent event) {
+        manager.trace(event.getPlayer(), "kick");
         if (manager.isActive(event.getPlayer())) {
             manager.stop(event.getPlayer(), true, false);
         }
     }
 
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
+        manager.trace(event.getPlayer(), "game-mode-change to=" + event.getNewGameMode());
         if (manager.isActive(event.getPlayer())) {
             manager.stop(event.getPlayer(), true, true);
         }
@@ -192,21 +224,13 @@ final class FreecamListener implements Listener {
             return;
         }
 
-        boolean cameraTouchingWater = player.isInWater()
-                || player.getLocation().getBlock().isLiquid()
-                || player.getEyeLocation().getBlock().isLiquid();
+        boolean cameraTouchingWater = WaterContact.touches(player);
         if (!cameraTouchingWater) {
             return;
         }
 
-        Input input = player.getCurrentInput();
-        if (input.isJump() || input.isSneak()) {
-            return;
-        }
-
-        Vector velocity = event.getVelocity().clone();
-        if (Math.abs(velocity.getY()) > 1.0E-5D) {
-            velocity.setY(0.0D);
+        Vector velocity = WaterContact.cameraVelocity(player.getCurrentInput(), event.getVelocity());
+        if (!velocity.equals(event.getVelocity())) {
             event.setVelocity(velocity);
         }
     }
@@ -218,6 +242,7 @@ final class FreecamListener implements Listener {
         }
 
         event.setCancelled(true);
+        manager.trace(event.getPlayer(), "flight-disable-cancelled");
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             Player player = event.getPlayer();
             if (player.isOnline() && manager.isActive(player)) {
@@ -286,6 +311,7 @@ final class FreecamListener implements Listener {
 
         event.setCancelled(true);
         if (manager.isOwnBody(player, event.getRightClicked())) {
+            manager.trace(player, "own-body-right-click");
             manager.stop(player, true, true);
         }
     }
@@ -299,6 +325,7 @@ final class FreecamListener implements Listener {
 
         event.setCancelled(true);
         if (manager.isOwnBody(player, event.getRightClicked())) {
+            manager.trace(player, "own-body-right-click-at");
             manager.stop(player, true, true);
         }
     }
