@@ -1,5 +1,6 @@
 package io.github.sanowo0390.anchoredfreecam;
 
+import org.bukkit.Input;
 import org.bukkit.Location;
 import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Player;
@@ -55,6 +56,22 @@ final class FreecamListener implements Listener {
             return;
         }
 
+        Location from = event.getFrom();
+        Input input = player.getCurrentInput();
+
+        // A detached camera must not inherit passive water/bubble-column lift.
+        // Keep deliberate jump/sneak vertical control, but pin passive Y movement.
+        boolean cameraInWater = player.isInWater()
+                || from.getBlock().isLiquid()
+                || to.getBlock().isLiquid();
+        if (cameraInWater && !input.isJump() && !input.isSneak()
+                && Math.abs(to.getY() - from.getY()) > 1.0E-5D) {
+            Location corrected = to.clone();
+            corrected.setY(from.getY());
+            event.setTo(corrected);
+            to = corrected;
+        }
+
         double max = manager.getMaxDistance();
         if (to.distanceSquared(session.anchor()) <= max * max) {
             manager.updateLastLegalLocation(player, to);
@@ -72,18 +89,39 @@ final class FreecamListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
-        FreecamSession session = manager.getSession(player);
-        if (session == null || manager.isInternalTeleport(player)) {
-            return;
-        }
-
         Location to = event.getTo();
         if (to == null) {
             return;
         }
 
-        // A cross-world teleport cannot keep the anchored body in sync, so keep
-        // the old behavior there: end freecam and let the teleport continue.
+        // Generic TPA / teleport-plugin support:
+        // if another player is being teleported to a freecam camera position,
+        // rewrite the destination to the anchored body instead.
+        if (!manager.isActive(player)
+                && (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN
+                || event.getCause() == PlayerTeleportEvent.TeleportCause.COMMAND)) {
+            Location redirected = manager.redirectedTeleportDestination(player, to);
+            if (redirected != null) {
+                event.setTo(redirected);
+            }
+            return;
+        }
+
+        FreecamSession session = manager.getSession(player);
+        if (session == null || manager.isInternalTeleport(player)) {
+            return;
+        }
+
+        // If the freecam player themselves is teleported by a command/plugin
+        // (TPA accept, homes, admin /tp, etc.), end freecam first and allow the
+        // requested teleport to proceed normally instead of moving the ghost.
+        if (event.getCause() == PlayerTeleportEvent.TeleportCause.PLUGIN
+                || event.getCause() == PlayerTeleportEvent.TeleportCause.COMMAND) {
+            manager.stopWithoutReturn(player, true);
+            return;
+        }
+
+        // Cross-world teleports also end freecam and proceed normally.
         if (to.getWorld() != session.anchor().getWorld()) {
             manager.stopWithoutReturn(player, true);
             return;
