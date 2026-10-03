@@ -79,6 +79,10 @@ final class FreecamManager {
         return player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR;
     }
 
+    static boolean shouldHoverBody(Player player) {
+        return player.getGameMode() == GameMode.CREATIVE && player.isFlying();
+    }
+
     boolean isProtectedMobTarget(LivingEntity target) {
         if (target instanceof Player player) return isActive(player) && ignoresMobAggro(player);
         if (target == null) return false;
@@ -148,7 +152,8 @@ final class FreecamManager {
                 player.isGliding(),
                 player.hasGravity(),
                 player.getRemainingAir(),
-                player.getFallDistance()
+                player.getFallDistance(),
+                shouldHoverBody(player)
         );
         sessions.put(player.getUniqueId(), session);
         lastLegalLocations.put(player.getUniqueId(), anchor.clone());
@@ -215,7 +220,7 @@ final class FreecamManager {
         float bodyFallDistance = body != null && body.isValid()
                 ? body.getFallDistance()
                 : session.fallDistance();
-        boolean bodyPhysical = body != null && body.isValid()
+        boolean bodyPhysical = !session.bodyHovering() && body != null && body.isValid()
                 && (!body.isOnGround() || WaterContact.touches(body));
 
         removeBody(session);
@@ -234,6 +239,10 @@ final class FreecamManager {
         if (returnToAnchor && bodyPhysical) {
             player.setFallDistance(bodyFallDistance);
             player.setVelocity(bodyVelocity);
+        }
+        if (returnToAnchor && session.bodyHovering()) {
+            player.setFallDistance(0.0F);
+            player.setVelocity(new Vector());
         }
         if (sendMessage && player.isOnline()) {
             player.sendMessage(message(
@@ -580,7 +589,14 @@ final class FreecamManager {
                 // A body in water retains native current/buoyancy physics. Only
                 // a dry grounded body is anchored; falling into water stays physical.
                 boolean physical = !body.isOnGround() || WaterContact.touches(body);
-                if (physical) {
+                if (session.bodyHovering()) {
+                    // Use the state captured BEFORE enabling camera flight.
+                    // Survival cameras also fly, but their bodies must still fall.
+                    body.setVelocity(new Vector());
+                    body.setFallDistance(0.0F);
+                    body.setGravity(false);
+                    body.setImmovable(true);
+                } else if (physical) {
                     body.setImmovable(false);
                     body.setGravity(true);
                 } else if (!body.isImmovable()) {
@@ -793,7 +809,8 @@ final class FreecamManager {
             mannequin.setProfile(ResolvableProfile.resolvableProfile(player.getPlayerProfile()));
             mannequin.setMainHand(player.getMainHand());
 
-            boolean airborne = !player.isOnGround() || WaterContact.touches(player);
+            boolean airborne = !shouldHoverBody(player)
+                    && (!player.isOnGround() || WaterContact.touches(player));
             mannequin.setImmovable(!airborne);
             mannequin.setGravity(airborne);
             mannequin.setAI(false);

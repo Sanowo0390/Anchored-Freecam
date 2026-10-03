@@ -145,8 +145,12 @@ class WaterRegressionTest {
     }
 
     private void installSession() throws Exception {
+        installSession(false);
+    }
+
+    private void installSession(boolean hovering) throws Exception {
         session = new FreecamSession(bodyLocation.clone(), body.getUniqueId(), false, false,
-                false, true, false, true, false, true, 300, 0);
+                false, true, false, true, false, true, 300, 0, hovering);
         state("sessions").put(player.getUniqueId(), session);
         state("bodyOwners").put(body.getUniqueId(), player.getUniqueId());
         state("lastLegalLocations").put(player.getUniqueId(), camera.clone());
@@ -688,5 +692,57 @@ class WaterRegressionTest {
         method.setAccessible(true);
         method.invoke(manager, player, body);
         verify(monster).setTarget(mode == GameMode.CREATIVE ? null : body);
+    }
+
+    @Test
+    void onlyCreativeAlreadyFlyingAtStartGetsHoveringBody() {
+        when(player.getGameMode()).thenReturn(GameMode.CREATIVE);
+        when(player.isFlying()).thenReturn(true);
+        assertTrue(FreecamManager.shouldHoverBody(player));
+        when(player.isFlying()).thenReturn(false);
+        assertFalse(FreecamManager.shouldHoverBody(player));
+        when(player.getGameMode()).thenReturn(GameMode.SURVIVAL);
+        when(player.isFlying()).thenReturn(true);
+        assertFalse(FreecamManager.shouldHoverBody(player));
+    }
+
+    @Test
+    void hoveringBodyKeepsGravityOffAcrossTicksAndWaterContact() throws Exception {
+        installSession(true);
+        when(player.getGameMode()).thenReturn(GameMode.CREATIVE);
+        when(player.isFlying()).thenReturn(true);
+        when(body.isOnGround()).thenReturn(false);
+        when(body.isInWaterOrBubbleColumn()).thenReturn(true);
+        for (int i = 0; i < 3; i++) environment.run();
+        verify(body, times(3)).setGravity(false);
+        verify(body, times(3)).setImmovable(true);
+        verify(body, times(3)).setVelocity(new Vector());
+        verify(body, never()).setGravity(true);
+        assertEquals(bodyLocation, session.anchor());
+    }
+
+    @Test
+    void cameraFlightDoesNotMakeNonFlyingCreativeBodyHover() {
+        when(player.getGameMode()).thenReturn(GameMode.CREATIVE);
+        when(player.isFlying()).thenReturn(true);
+        // Session was captured before camera flight: bodyHovering remains false.
+        environment.run();
+        verify(body).setGravity(true);
+        verify(body).setImmovable(false);
+    }
+
+    @Test
+    void hoveringExitRestoresCreativeFlightWithoutCameraMomentum() throws Exception {
+        session = new FreecamSession(bodyLocation.clone(), body.getUniqueId(), true, true,
+                false, true, false, true, false, true, 300, 0, true);
+        state("sessions").put(player.getUniqueId(), session);
+        when(body.getVelocity()).thenReturn(new Vector(0, -0.8, 0));
+        when(body.getFallDistance()).thenReturn(10f);
+        manager.stop(player, true, false);
+        verify(player).setAllowFlight(true);
+        verify(player).setFlying(true);
+        verify(player).setVelocity(new Vector());
+        verify(player, never()).setVelocity(new Vector(0, -0.8, 0));
+        verify(player, never()).setFallDistance(10f);
     }
 }
