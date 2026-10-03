@@ -79,6 +79,13 @@ final class FreecamManager {
         return entity instanceof Mannequin mannequin ? mannequin : null;
     }
 
+    boolean isOwnBody(Player player, Entity entity) {
+        FreecamSession session = getSession(player);
+        return session != null
+                && session.bodyUuid() != null
+                && session.bodyUuid().equals(entity.getUniqueId());
+    }
+
     double getMaxDistance() {
         if (plugin.getConfig().contains("max-distance-blocks")) {
             return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 15.0D));
@@ -666,6 +673,9 @@ final class FreecamManager {
             mannequin.setRemoveWhenFarAway(false);
             mannequin.setSilent(true);
 
+            // Keep the player's name, but remove Mannequin's default
+            // description line (e.g. "NPC") under the name.
+            mannequin.setDescription(null);
             if (plugin.getConfig().getBoolean("show-body-nameplate", true)) {
                 mannequin.customName(Component.text(player.getName()));
                 mannequin.setCustomNameVisible(true);
