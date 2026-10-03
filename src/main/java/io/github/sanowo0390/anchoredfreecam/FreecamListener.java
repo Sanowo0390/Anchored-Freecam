@@ -27,6 +27,8 @@ import org.bukkit.event.player.PlayerInteractAtEntityEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
+import org.bukkit.event.player.PlayerItemHeldEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerKickEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
@@ -254,6 +256,13 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onDamage(EntityDamageEvent event) {
+        // EntityDamageByEntityEvent also reaches this handler. Reject camera
+        // attacks before body damage can remove the victim's session, regardless
+        // of handler registration order or another plugin uncancelling the hit.
+        if (event instanceof EntityDamageByEntityEvent hit && isFreecamActor(hit.getDamager())) {
+            event.setCancelled(true);
+            return;
+        }
         if (manager.handleBodyDamage(event)) {
             return;
         }
@@ -266,7 +275,7 @@ final class FreecamListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onDamageByEntity(EntityDamageByEntityEvent event) {
         if (isFreecamActor(event.getDamager())) {
             event.setCancelled(true);
@@ -373,6 +382,16 @@ final class FreecamListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onInventoryDrag(InventoryDragEvent event) {
         if (event.getWhoClicked() instanceof Player player && manager.isActive(player)) event.setCancelled(true);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onItemHeld(PlayerItemHeldEvent event) {
+        manager.refreshCameraHandNextTick(event.getPlayer());
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (event.getPlayer() instanceof Player player) manager.refreshCameraHandNextTick(player);
     }
 
     private boolean isFreecamActor(org.bukkit.entity.Entity entity) {

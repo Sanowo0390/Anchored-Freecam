@@ -12,15 +12,20 @@ import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Player;
 import org.bukkit.event.entity.EntityAirChangeEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityToggleSwimEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerToggleFlightEvent;
 import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.EquipmentSlot;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -31,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.mockito.MockedStatic;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -52,9 +58,19 @@ class WaterRegressionTest {
     private FreecamSession session;
     private final List<Runnable> queued = new ArrayList<>();
     private Runnable environment;
+    private MockedStatic<ItemStack> itemStacks;
+    private ItemStack emptyHand;
+
+    @AfterEach
+    void closeItemStackMock() {
+        if (itemStacks != null) itemStacks.close();
+    }
 
     @BeforeEach
     void setup() throws Exception {
+        emptyHand = mock(ItemStack.class);
+        itemStacks = mockStatic(ItemStack.class);
+        itemStacks.when(ItemStack::empty).thenReturn(emptyHand);
         plugin = mock(AnchoredFreecamPlugin.class);
         server = mock(Server.class);
         BukkitScheduler scheduler = mock(BukkitScheduler.class);
@@ -230,7 +246,8 @@ class WaterRegressionTest {
         manager.queueCameraCorrection(player, camera.clone().add(14, 0, 0));
         bodyLocation.setY(40);
         runQueued();
-        assertEquals(bodyLocation, camera);
+        assertNotEquals(bodyLocation, camera);
+        assertEquals(14.95, camera.distance(bodyLocation), 1e-6);
         assertTrue(manager.isActive(player));
     }
 
@@ -436,5 +453,148 @@ class WaterRegressionTest {
         when(body.getVelocity()).thenReturn(new Vector(0.08, 0, 0.02));
         manager.stop(player, true, false);
         verify(player).setVelocity(new Vector(0.08, 0, 0.02));
+    }
+
+    @Test
+    void crossingBoundaryUsesCurrentEdgeInsteadOfStaleOrigin() {
+        config.set("show-boundary-message", false);
+        camera.setX(14.95);
+        PlayerMoveEvent move = new PlayerMoveEvent(player, camera.clone(), camera.clone().add(0.1, 0, 0));
+        listener.onMove(move);
+        runQueued();
+        assertEquals(14.95, camera.getX(), 1e-9);
+        assertTrue(manager.isActive(player));
+    }
+
+    @Test
+    void environmentDoesNotOverwriteSavedEdgeWithBodyPosition() throws Exception {
+        Location edge = camera.clone().add(14.95, 0, 0);
+        state("lastLegalLocations").put(player.getUniqueId(), edge);
+        camera.setX(15.05);
+        config.set("show-boundary-message", false);
+        environment.run();
+        assertEquals(edge, state("lastLegalLocations").get(player.getUniqueId()));
+        runQueued();
+        assertEquals(edge, camera);
+        assertTrue(manager.isActive(player));
+    }
+
+    @Test
+    void invalidSavedEdgeProjectsNearLimitAfterBodyMovement() throws Exception {
+        camera.setX(15);
+        state("lastLegalLocations").put(player.getUniqueId(), camera.clone());
+        bodyLocation.setX(-0.1);
+        config.set("show-boundary-message", false);
+        environment.run();
+        runQueued();
+        assertEquals(14.85, camera.getX(), 1e-9);
+        assertEquals(14.95, camera.distance(bodyLocation), 1e-9);
+    }
+
+    @Test
+    void shrinkingRangeProjectsToNewEdgeAndPreservesLook() {
+        camera.setX(14);
+        camera.setYaw(75);
+        camera.setPitch(-25);
+        config.set("max-distance-blocks", 10);
+        manager.queueCameraCorrection(player, camera.clone());
+        runQueued();
+        assertEquals(9.95, camera.getX(), 1e-9);
+        assertEquals(75, camera.getYaw());
+        assertEquals(-25, camera.getPitch());
+    }
+
+    @Test
+    void projectedCorrectionAvoidsCollidingEndpoint() {
+        camera.setX(15.1);
+        when(player.collidesAt(any(Location.class))).thenAnswer(call -> ((Location) call.getArgument(0)).getX() > 14.8);
+        manager.queueCameraCorrection(player, camera.clone());
+        runQueued();
+        assertEquals(14.7, camera.getX(), 1e-9);
+    }
+
+    @Test
+    void cameraAttackCannotExitVictimEvenWhenGeneralHandlerRunsFirst() throws Exception {
+        Player attacker = mock(Player.class);
+        when(attacker.getUniqueId()).thenReturn(UUID.randomUUID());
+        state("sessions").put(attacker.getUniqueId(), session);
+        EntityDamageByEntityEvent hit = mock(EntityDamageByEntityEvent.class);
+        when(hit.getDamager()).thenReturn(attacker);
+        when(hit.getEntity()).thenReturn(body);
+        listener.onDamage(hit);
+        verify(hit).setCancelled(true);
+        assertTrue(manager.isActive(player));
+        verify(body, never()).remove();
+        verify(player, never()).damage(anyDouble(), any(org.bukkit.damage.DamageSource.class));
+    }
+
+    @Test
+    void cameraProjectileCannotExitVictim() throws Exception {
+        Player attacker = mock(Player.class);
+        when(attacker.getUniqueId()).thenReturn(UUID.randomUUID());
+        state("sessions").put(attacker.getUniqueId(), session);
+        org.bukkit.entity.Projectile projectile = mock(org.bukkit.entity.Projectile.class);
+        when(projectile.getShooter()).thenReturn(attacker);
+        EntityDamageByEntityEvent hit = mock(EntityDamageByEntityEvent.class);
+        when(hit.getDamager()).thenReturn(projectile);
+        when(hit.getEntity()).thenReturn(body);
+        listener.onDamageByEntity(hit);
+        listener.onDamage(hit);
+        verify(hit, times(2)).setCancelled(true);
+        assertTrue(manager.isActive(player));
+        verify(body, never()).remove();
+    }
+
+    @Test
+    void normalPlayerCanStillDamageBodyAndEndFreecam() {
+        Player attacker = mock(Player.class);
+        when(attacker.getUniqueId()).thenReturn(UUID.randomUUID());
+        EntityDamageByEntityEvent hit = mock(EntityDamageByEntityEvent.class);
+        org.bukkit.damage.DamageSource source = mock(org.bukkit.damage.DamageSource.class);
+        when(hit.getDamager()).thenReturn(attacker);
+        when(hit.getEntity()).thenReturn(body);
+        when(hit.getCause()).thenReturn(EntityDamageEvent.DamageCause.ENTITY_ATTACK);
+        when(hit.getDamage()).thenReturn(3.0);
+        when(hit.getDamageSource()).thenReturn(source);
+        listener.onDamage(hit);
+        assertFalse(manager.isActive(player));
+        verify(player).damage(3.0, source);
+    }
+
+    @Test
+    void handMaskOnlySendsOwnMainHandAndNeverMutatesInventory() {
+        manager.hideCameraHand(player);
+        verify(player).sendEquipmentChange(player, EquipmentSlot.HAND, emptyHand);
+        verify(player, never()).getInventory();
+        verify(body, never()).getEquipment();
+    }
+
+    @Test
+    void hotbarSwitchRestoresPreviousSlotBeforeMaskingCurrentHand() {
+        listener.onItemHeld(new PlayerItemHeldEvent(player, 0, 1));
+        runQueued();
+        org.mockito.InOrder order = inOrder(player);
+        order.verify(player).updateInventory();
+        order.verify(player).sendEquipmentChange(player, EquipmentSlot.HAND, emptyHand);
+        verify(player, never()).getInventory();
+    }
+
+    @Test
+    void stoppingRestoresInventoryAndDiscardsPendingHandMask() {
+        manager.refreshCameraHandNextTick(player);
+        manager.stopWithoutReturn(player, false);
+        runQueued();
+        verify(player).updateInventory();
+        verify(player, never()).sendEquipmentChange(any(), any(EquipmentSlot.class), any(ItemStack.class));
+    }
+
+    @Test
+    void staleHandRefreshCannotAffectNewSession() throws Exception {
+        manager.refreshCameraHandNextTick(player);
+        manager.stopWithoutReturn(player, false);
+        installSession();
+        runQueued();
+        verify(player, times(1)).updateInventory();
+        verify(player, never()).sendEquipmentChange(any(), any(EquipmentSlot.class), any(ItemStack.class));
     }
 }

@@ -22,6 +22,7 @@ import org.bukkit.entity.Warden;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
@@ -168,6 +169,7 @@ final class FreecamManager {
         }
 
         applyCameraVisibility(player);
+        hideCameraHand(player);
 
         if (body != null) {
             retargetCurrentEnemies(player, body);
@@ -272,14 +274,15 @@ final class FreecamManager {
     void queueBoundaryReturn(Player player, float yaw, float pitch) {
         FreecamSession session = getSession(player);
         if (session == null) return;
-        Location safe = lastLegalLocations.get(player.getUniqueId());
+        Location safe = player.getLocation();
         double max = getMaxDistance();
-        if (safe == null || safe.getWorld() != session.anchor().getWorld()
+        if (safe.getWorld() != session.anchor().getWorld()
                 || safe.distanceSquared(session.anchor()) > max * max) {
-            safe = session.anchor().clone();
-        } else {
-            safe = safe.clone();
+            Location last = lastLegalLocations.get(player.getUniqueId());
+            if (last != null && last.getWorld() == session.anchor().getWorld()
+                    && last.distanceSquared(session.anchor()) <= max * max) safe = last;
         }
+        safe = safe.clone();
         safe.setYaw(yaw);
         safe.setPitch(pitch);
         queueCameraCorrection(player, safe);
@@ -302,11 +305,11 @@ final class FreecamManager {
             double max = getMaxDistance();
             if (safe.getWorld() != session.anchor().getWorld()
                     || safe.distanceSquared(session.anchor()) > max * max) {
-                float yaw = safe.getYaw();
-                float pitch = safe.getPitch();
-                safe = session.anchor().clone();
-                safe.setYaw(yaw);
-                safe.setPitch(pitch);
+                safe = nearestRangeLocation(player, session, safe);
+                if (safe == null) {
+                    trace(player, "boundary-no-clear-destination");
+                    return;
+                }
             }
             internalTeleports.add(uuid);
             try {
@@ -317,6 +320,49 @@ final class FreecamManager {
             } finally {
                 internalTeleports.remove(uuid);
             }
+        });
+    }
+
+    private Location nearestRangeLocation(Player player, FreecamSession session, Location requested) {
+        Location anchor = session.anchor();
+        if (requested.getWorld() != anchor.getWorld()) {
+            Location result = anchor.clone();
+            result.setYaw(requested.getYaw());
+            result.setPitch(requested.getPitch());
+            return result;
+        }
+        Vector offset = requested.toVector().subtract(anchor.toVector());
+        double distance = offset.length();
+        if (distance == 0) return requested.clone();
+        Vector direction = offset.multiply(1.0 / distance);
+        // Keep the view near the limit even if the body moved or the range was
+        // reduced. Never replace an invalid saved edge position with the origin.
+        double radius = Math.max(0, getMaxDistance() - Math.min(0.05, getMaxDistance() * 0.01));
+        for (double remaining = Math.min(distance, radius); remaining >= 0; remaining -= 0.25) {
+            Location candidate = anchor.clone().add(direction.clone().multiply(remaining));
+            candidate.setYaw(requested.getYaw());
+            candidate.setPitch(requested.getPitch());
+            if (!player.collidesAt(candidate)) return candidate;
+        }
+        return null;
+    }
+
+    void hideCameraHand(Player player) {
+        if (isActive(player)) {
+            // Client-only equipment update: the real inventory and the body's
+            // copied equipment remain untouched, including on disconnect/crash.
+            player.sendEquipmentChange(player, EquipmentSlot.HAND, ItemStack.empty());
+        }
+    }
+
+    void refreshCameraHandNextTick(Player player) {
+        FreecamSession session = getSession(player);
+        if (session == null) return;
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline() || getSession(player) != session) return;
+            // Restore the previously selected slot, then hide the current one.
+            player.updateInventory();
+            hideCameraHand(player);
         });
     }
 
@@ -535,7 +581,6 @@ final class FreecamManager {
                         && currentCamera.distanceSquared(session.anchor()) <= max * max) {
                     lastLegalLocations.put(player.getUniqueId(), currentCamera.clone());
                 } else {
-                    lastLegalLocations.put(player.getUniqueId(), session.anchor().clone());
                     queueBoundaryReturn(player, currentCamera.getYaw(), currentCamera.getPitch());
                 }
             }
@@ -563,6 +608,7 @@ final class FreecamManager {
             }
 
             player.setFallDistance(0.0F);
+            hideCameraHand(player);
 
             // Survival air belongs to the anchored body, not the moving camera.
             int air = body != null && body.isValid()
@@ -804,6 +850,7 @@ final class FreecamManager {
         player.setFlying(session.allowFlight() && session.flying());
         player.setGliding(session.gliding());
         player.setFallDistance(session.fallDistance());
+        player.updateInventory();
     }
 
     private void restoreVisibility(Player player) {
