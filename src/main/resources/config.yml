@@ -1,6 +1,10 @@
 # Language used for player-facing messages.
-# Supported: ja, en
+# The value maps to plugins/AnchoredFreecam/lang/<language>.yml.
+# Any file name using letters, numbers, "_" or "-" can be used, e.g. ru, uk, de, pt_br.
 language: ja
+
+# If the selected language is missing a message key, read that key from this language.
+fallback-language: ja
 
 # Maximum 3D distance from the anchor, in blocks ("マス").
 # Default: 20
