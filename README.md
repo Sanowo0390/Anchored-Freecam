@@ -2,9 +2,9 @@
 
 Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライアントMod不要の制限付きFreecamプラグインです。
 
-## 1.1.5 の主な変更
+## 1.1.6 の主な変更
 
-- デフォルト範囲は **20マス**
+- デフォルト範囲を **15マス** に変更
 - 言語をJavaコード内固定から **外部YAML方式** へ変更
 - `plugins/AnchoredFreecam/lang/*.yml` を自動検出
 - `ru.yml`、`uk.yml`、`de.yml`、`pt_br.yml` など任意の言語を追加可能
@@ -12,6 +12,10 @@ Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライア�
 - 言語コマンドのTAB補完も `lang/` 内の実ファイルから自動生成
 - 翻訳キーが不足している場合は `fallback-language` から自動補完
 - `/freecam reload` で `config.yml` と言語YAMLを再読み込み
+- 水中判定・呼吸ゲージを幽体離脱カメラ側ではなくアンカー本体側へ同期
+- カメラが水中に入っても呼吸を消費しない
+- 本体が水中なら本体側の残り空気を呼吸ゲージへ反映
+- カメラの水中浮力を抑制し、上下入力していない時の受動的なY移動を止める
 
 ## 言語ファイル
 
@@ -128,13 +132,13 @@ fallback-language: en
 新規導入時のデフォルト:
 
 ```yaml
-max-distance-blocks: 20.0
+max-distance-blocks: 15.0
 ```
 
 既存環境では:
 
 ```text
-/freecam range 20
+/freecam range 15
 ```
 
 で変更できます。
@@ -196,5 +200,5 @@ gradle build
 生成物:
 
 ```text
-build/libs/AnchoredFreecam-1.1.5.jar
+build/libs/AnchoredFreecam-1.1.6.jar
 ```
