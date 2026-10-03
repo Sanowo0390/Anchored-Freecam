@@ -13,6 +13,8 @@ record FreecamSession(
         boolean collidable,
         boolean invisible,
         boolean gliding,
+        boolean gravity,
+        int remainingAir,
         float fallDistance
 ) {
 }
