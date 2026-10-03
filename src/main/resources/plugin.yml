@@ -8,7 +8,7 @@ website: https://github.com/Sanowo0390/Anchored-Freecam
 commands:
   freecam:
     description: AnchoredFreecam commands.
-    usage: /freecam [on|off|toggle|status|range|reload]
+    usage: /freecam [on|off|toggle|status|range|language|reload]
     aliases: [fc]
 permissions:
   anchoredfreecam.use:
@@ -16,6 +16,9 @@ permissions:
     default: false
   anchoredfreecam.range:
     description: Allows viewing/changing the global freecam range.
+    default: op
+  anchoredfreecam.language:
+    description: Allows viewing/changing the plugin language.
     default: op
   anchoredfreecam.reload:
     description: Allows reloading AnchoredFreecam's configuration.
@@ -26,4 +29,5 @@ permissions:
     children:
       anchoredfreecam.use: true
       anchoredfreecam.range: true
+      anchoredfreecam.language: true
       anchoredfreecam.reload: true
