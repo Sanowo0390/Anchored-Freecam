@@ -2,7 +2,7 @@
 
 Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライアントMod不要の制限付きFreecamプラグインです。
 
-## 1.1.7 の主な変更
+## 1.1.8 の主な変更
 
 - デフォルト範囲を **15マス** に変更
 - 言語をJavaコード内固定から **外部YAML方式** へ変更
@@ -22,6 +22,10 @@ Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライア�
 - `/tpa`・`/tpaccept`・Homes・管理者 `/tp` などの外部Teleportに対応
 - Freecam中の本人が外部Teleportされる場合はFreecamを終了してTeleportを許可
 - 他人がFreecam中プレイヤーへTeleportする場合、幽体座標ではなくアンカー本体座標へ自動リダイレクト
+- 落下中・ジャンプ中など空中でFreecamを開始した場合、本体Mannequinへ速度・重力・落下距離を引き継ぐ
+- 本体が落下している間はFreecamのアンカー中心も本体位置へ追従
+- 本体が着地したらその位置で固定
+- 空中でFreecamを手動終了した場合も、本体の落下速度と落下距離を実Playerへ戻すため落下停止に悪用できない
 
 ## 言語ファイル
 
@@ -206,7 +210,7 @@ gradle build
 生成物:
 
 ```text
-build/libs/AnchoredFreecam-1.1.7.jar
+build/libs/AnchoredFreecam-1.1.8.jar
 ```
 
 
@@ -221,3 +225,18 @@ Freecam中のPlayer Entityはカメラ位置に存在するため、通常のTPA
 - 特定のTPAプラグインAPIには依存しないため、一般的なTPA/Homes/管理者TPで利用可能
 
 `teleport-camera-match-radius-blocks` は、Teleport先が幽体カメラ位置とどれだけ近ければ「そのPlayerへのTeleport」と判定するかを指定します。
+
+
+## 空中でFreecamを開始した場合
+
+1.1.8では、空中でFreecamを開始しても開始地点に本体が固定されません。
+
+- Mannequinへ開始時の速度をコピー
+- 重力を有効化
+- 落下距離を引き継ぐ
+- 落下中はアンカー中心もMannequinへ追従
+- 着地後にMannequinを固定
+- 落下ダメージが発生した場合は通常どおり本体ダメージとして処理
+- 落下途中でFreecamをOFFにした場合は、Mannequinの現在位置・速度・落下距離をPlayerへ戻す
+
+これにより、落下中にFreecamをON/OFFして空中停止する用途には使えないようにしています。
