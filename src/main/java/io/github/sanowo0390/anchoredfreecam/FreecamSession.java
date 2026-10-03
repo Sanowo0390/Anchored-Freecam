@@ -12,6 +12,7 @@ record FreecamSession(
         boolean invulnerable,
         boolean collidable,
         boolean invisible,
+        boolean visibleByDefault,
         boolean gliding,
         boolean gravity,
         int remainingAir,
