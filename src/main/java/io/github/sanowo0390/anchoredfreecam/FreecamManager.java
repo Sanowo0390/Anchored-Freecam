@@ -75,6 +75,18 @@ final class FreecamManager {
         return sessions.get(player.getUniqueId());
     }
 
+    boolean ignoresMobAggro(Player player) {
+        return player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR;
+    }
+
+    boolean isProtectedMobTarget(LivingEntity target) {
+        if (target instanceof Player player) return isActive(player) && ignoresMobAggro(player);
+        if (target == null) return false;
+        UUID ownerUuid = bodyOwners.get(target.getUniqueId());
+        Player owner = ownerUuid == null ? null : plugin.getServer().getPlayer(ownerUuid);
+        return owner != null && isActive(owner) && ignoresMobAggro(owner);
+    }
+
     Mannequin getBody(Player player) {
         FreecamSession session = getSession(player);
         if (session == null || session.bodyUuid() == null) {
@@ -380,6 +392,10 @@ final class FreecamManager {
             event.getEntity().remove();
             return true;
         }
+
+        // A creative proxy must not turn an otherwise harmless mob hit into
+        // an exit from freecam, even if another plugin targets it directly.
+        if (ignoresMobAggro(player)) return true;
 
         FreecamSession session = getSession(player);
         if (session != null) {
@@ -718,6 +734,11 @@ final class FreecamManager {
 
                 LivingEntity target = monster.getTarget();
 
+                if (ignoresMobAggro(player)) {
+                    if (target == body || target == player) monster.setTarget(null);
+                    continue;
+                }
+
                 if (target == body) {
                     continue;
                 }
@@ -762,7 +783,7 @@ final class FreecamManager {
     private void retargetCurrentEnemies(Player player, Mannequin body) {
         for (Entity entity : player.getNearbyEntities(64.0, 64.0, 64.0)) {
             if (entity instanceof Monster monster && monster.getTarget() == player) {
-                monster.setTarget(body);
+                monster.setTarget(ignoresMobAggro(player) ? null : body);
             }
         }
     }
@@ -778,7 +799,7 @@ final class FreecamManager {
             mannequin.setAI(false);
             mannequin.setCanPickupItems(false);
             mannequin.setCollidable(true);
-            mannequin.setInvulnerable(false);
+            mannequin.setInvulnerable(ignoresMobAggro(player));
             mannequin.setPersistent(false);
             mannequin.setRemoveWhenFarAway(false);
             mannequin.setSilent(true);

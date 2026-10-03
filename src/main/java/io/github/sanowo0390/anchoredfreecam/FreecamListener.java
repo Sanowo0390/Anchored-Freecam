@@ -284,6 +284,10 @@ final class FreecamListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onTarget(EntityTargetLivingEntityEvent event) {
+        if (manager.isProtectedMobTarget(event.getTarget())) {
+            event.setTarget(null);
+            return;
+        }
         if (!(event.getTarget() instanceof Player player) || !manager.isActive(player)) {
             return;
         }

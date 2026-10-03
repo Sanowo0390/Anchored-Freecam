@@ -1,6 +1,7 @@
 package io.github.sanowo0390.anchoredfreecam;
 
 import org.bukkit.Input;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Server;
@@ -10,6 +11,9 @@ import org.bukkit.block.data.Waterlogged;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Monster;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.EntityAirChangeEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
@@ -30,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -58,6 +63,7 @@ class WaterRegressionTest {
     private FreecamSession session;
     private final List<Runnable> queued = new ArrayList<>();
     private Runnable environment;
+    private Runnable aggro;
     private MockedStatic<ItemStack> itemStacks;
     private ItemStack emptyHand;
 
@@ -80,6 +86,7 @@ class WaterRegressionTest {
         when(server.getScheduler()).thenReturn(scheduler);
         when(scheduler.runTaskTimer(eq(plugin), any(Runnable.class), anyLong(), anyLong())).thenAnswer(call -> {
             if ((long) call.getArgument(3) == 1L) environment = call.getArgument(1);
+            if ((long) call.getArgument(3) == 2L) aggro = call.getArgument(1);
             return mock(BukkitTask.class);
         });
         when(scheduler.runTask(eq(plugin), any(Runnable.class))).thenAnswer(call -> {
@@ -99,6 +106,7 @@ class WaterRegressionTest {
         when(player.getUniqueId()).thenReturn(UUID.randomUUID());
         when(body.getUniqueId()).thenReturn(UUID.randomUUID());
         when(player.isOnline()).thenReturn(true);
+        when(player.getGameMode()).thenReturn(GameMode.SURVIVAL);
         when(player.getCurrentInput()).thenReturn(input);
         when(player.getLocation()).thenAnswer(call -> camera.clone());
         when(player.getEyeLocation()).thenAnswer(call -> camera.clone().add(0, 1.62, 0));
@@ -596,5 +604,89 @@ class WaterRegressionTest {
         runQueued();
         verify(player, times(1)).updateInventory();
         verify(player, never()).sendEquipmentChange(any(), any(EquipmentSlot.class), any(ItemStack.class));
+    }
+
+    private Monster nearbyMonster() {
+        Monster monster = mock(Monster.class);
+        when(monster.isValid()).thenReturn(true);
+        when(monster.isAware()).thenReturn(true);
+        when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(monster));
+        return monster;
+    }
+
+    @Test
+    void creativeBodyDoesNotAcquireAggroAndClearsExistingTarget() {
+        when(player.getGameMode()).thenReturn(GameMode.CREATIVE);
+        Monster monster = nearbyMonster();
+        aggro.run();
+        verify(monster, never()).setTarget(any());
+        when(monster.getTarget()).thenReturn(body);
+        aggro.run();
+        verify(monster).setTarget(null);
+        verify(monster, never()).setTarget(body);
+    }
+
+    @Test
+    void creativeAggroCleanupDoesNotStealAnotherPlayersTarget() {
+        when(player.getGameMode()).thenReturn(GameMode.CREATIVE);
+        Monster monster = nearbyMonster();
+        when(monster.getTarget()).thenReturn(mock(Player.class));
+        aggro.run();
+        verify(monster, never()).setTarget(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = GameMode.class, names = {"SURVIVAL", "ADVENTURE"})
+    void survivalAndAdventureStillAttractHostileMobs(GameMode mode) {
+        when(player.getGameMode()).thenReturn(mode);
+        Monster monster = nearbyMonster();
+        aggro.run();
+        verify(monster).setTarget(body);
+    }
+
+    @Test
+    void creativeCameraAndBodyCannotBeTargetedEvenWithAggroOptionOff() {
+        config.set("force-hostile-mob-aggro", false);
+        when(player.getGameMode()).thenReturn(GameMode.CREATIVE);
+        for (LivingEntity target : new LivingEntity[]{player, body}) {
+            EntityTargetLivingEntityEvent event = mock(EntityTargetLivingEntityEvent.class);
+            when(event.getTarget()).thenReturn(target);
+            listener.onTarget(event);
+            verify(event).setTarget(null);
+        }
+    }
+
+    @Test
+    void survivalCameraStillRedirectsMobsToBody() {
+        EntityTargetLivingEntityEvent event = mock(EntityTargetLivingEntityEvent.class);
+        when(event.getTarget()).thenReturn(player);
+        listener.onTarget(event);
+        verify(event).setTarget(body);
+    }
+
+    @Test
+    void creativeBodyDamageDoesNotExitOrForwardDamage() {
+        when(player.getGameMode()).thenReturn(GameMode.CREATIVE);
+        EntityDamageEvent event = mock(EntityDamageEvent.class);
+        when(event.getEntity()).thenReturn(body);
+        when(event.getCause()).thenReturn(EntityDamageEvent.DamageCause.ENTITY_ATTACK);
+        listener.onDamage(event);
+        verify(event).setCancelled(true);
+        assertTrue(manager.isActive(player));
+        verify(body, never()).remove();
+        verify(player, never()).damage(anyDouble(), any(org.bukkit.damage.DamageSource.class));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = GameMode.class, names = {"CREATIVE", "SURVIVAL"})
+    void startingRetargetRespectsGameMode(GameMode mode) throws Exception {
+        when(player.getGameMode()).thenReturn(mode);
+        Monster monster = nearbyMonster();
+        when(monster.getTarget()).thenReturn(player);
+        when(player.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(monster));
+        var method = FreecamManager.class.getDeclaredMethod("retargetCurrentEnemies", Player.class, Mannequin.class);
+        method.setAccessible(true);
+        method.invoke(manager, player, body);
+        verify(monster).setTarget(mode == GameMode.CREATIVE ? null : body);
     }
 }
