@@ -176,14 +176,25 @@ final class FreecamManager {
             return false;
         }
 
+        Mannequin body = getBody(session);
         int finalAir = getBodyAir(session);
+        Location returnLocation = body != null && body.isValid()
+                ? body.getLocation().clone()
+                : session.anchor().clone();
+        Vector bodyVelocity = body != null && body.isValid()
+                ? body.getVelocity().clone()
+                : new Vector();
+        float bodyFallDistance = body != null && body.isValid()
+                ? body.getFallDistance()
+                : session.fallDistance();
+        boolean bodyAirborne = body != null && body.isValid() && !body.isOnGround();
 
         removeBody(session);
 
         if (returnToAnchor) {
             internalTeleports.add(player.getUniqueId());
             try {
-                player.teleport(session.anchor().clone(), PlayerTeleportEvent.TeleportCause.PLUGIN);
+                player.teleport(returnLocation, PlayerTeleportEvent.TeleportCause.PLUGIN);
             } finally {
                 internalTeleports.remove(player.getUniqueId());
             }
@@ -191,6 +202,10 @@ final class FreecamManager {
 
         restoreState(player, session);
         player.setRemainingAir(finalAir);
+        if (returnToAnchor && bodyAirborne) {
+            player.setFallDistance(bodyFallDistance);
+            player.setVelocity(bodyVelocity);
+        }
         if (sendMessage && player.isOnline()) {
             player.sendMessage(message(
                     messages.text(returnToAnchor ? "freecam-disabled-return" : "freecam-disabled"),
@@ -207,6 +222,7 @@ final class FreecamManager {
             return;
         }
 
+        syncAnchorToBody(session);
         int finalAir = getBodyAir(session);
         removeBody(session);
         restoreState(player, session);
@@ -291,6 +307,11 @@ final class FreecamManager {
             bodyOwners.remove(event.getEntity().getUniqueId());
             event.getEntity().remove();
             return true;
+        }
+
+        FreecamSession session = getSession(player);
+        if (session != null) {
+            syncAnchorToBody(session);
         }
 
         double damage = event.getDamage();
@@ -453,6 +474,30 @@ final class FreecamManager {
                 continue;
             }
 
+            Mannequin body = getBody(player);
+            if (body != null && body.isValid() && !body.isImmovable()) {
+                syncAnchorToBody(session);
+
+                // Once the proxy body reaches the ground, freeze it there.
+                if (body.isOnGround()) {
+                    body.setVelocity(new Vector());
+                    body.setGravity(false);
+                    body.setImmovable(true);
+                    syncAnchorToBody(session);
+                }
+
+                // The freecam radius follows the real body while it is falling.
+                double max = getMaxDistance();
+                Location currentCamera = player.getLocation();
+                if (currentCamera.getWorld() == session.anchor().getWorld()
+                        && currentCamera.distanceSquared(session.anchor()) <= max * max) {
+                    lastLegalLocations.put(player.getUniqueId(), currentCamera.clone());
+                } else {
+                    lastLegalLocations.put(player.getUniqueId(), session.anchor().clone());
+                    queueBoundaryReturn(player, currentCamera.getYaw(), currentCamera.getPitch());
+                }
+            }
+
             // The camera is a detached viewpoint. Keep normal flying active and
             // prevent water/gravity from turning the camera into a physical body.
             player.setAllowFlight(true);
@@ -483,7 +528,6 @@ final class FreecamManager {
             player.setFallDistance(0.0F);
 
             // Survival air belongs to the anchored body, not the moving camera.
-            Mannequin body = getBody(player);
             int air = body != null && body.isValid()
                     ? body.getRemainingAir()
                     : session.remainingAir();
@@ -493,6 +537,30 @@ final class FreecamManager {
                 player.setRemainingAir(clampedAir);
             }
         }
+    }
+
+    private Mannequin getBody(FreecamSession session) {
+        if (session.bodyUuid() == null) {
+            return null;
+        }
+
+        Entity entity = plugin.getServer().getEntity(session.bodyUuid());
+        return entity instanceof Mannequin mannequin ? mannequin : null;
+    }
+
+    private void syncAnchorToBody(FreecamSession session) {
+        Mannequin body = getBody(session);
+        if (body == null || !body.isValid()) {
+            return;
+        }
+
+        Location bodyLocation = body.getLocation();
+        Location anchor = session.anchor();
+        anchor.setX(bodyLocation.getX());
+        anchor.setY(bodyLocation.getY());
+        anchor.setZ(bodyLocation.getZ());
+        anchor.setYaw(bodyLocation.getYaw());
+        anchor.setPitch(bodyLocation.getPitch());
     }
 
     private int getBodyAir(FreecamSession session) {
@@ -586,7 +654,10 @@ final class FreecamManager {
         Mannequin body = player.getWorld().spawn(anchor, Mannequin.class, mannequin -> {
             mannequin.setProfile(ResolvableProfile.resolvableProfile(player.getPlayerProfile()));
             mannequin.setMainHand(player.getMainHand());
-            mannequin.setImmovable(true);
+
+            boolean airborne = !player.isOnGround() && !player.isInWater();
+            mannequin.setImmovable(!airborne);
+            mannequin.setGravity(airborne);
             mannequin.setAI(false);
             mannequin.setCanPickupItems(false);
             mannequin.setCollidable(true);
@@ -620,6 +691,10 @@ final class FreecamManager {
         });
 
         body.setRotation(anchor.getYaw(), anchor.getPitch());
+        if (!body.isImmovable()) {
+            body.setVelocity(player.getVelocity().clone());
+            body.setFallDistance(player.getFallDistance());
+        }
         return body;
     }
 
