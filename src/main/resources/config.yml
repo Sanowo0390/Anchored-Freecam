@@ -1,8 +1,12 @@
+# Language used for player-facing messages.
+# Supported: ja, en
+language: ja
+
 # Maximum 3D distance from the anchor, in blocks ("マス").
-# Example: 5 means the camera cannot move farther than 5 blocks from the body.
+# Default: 20
 # Crossing the boundary does NOT end freecam; the camera is returned to
 # its last valid in-range position.
-max-distance-blocks: 5.0
+max-distance-blocks: 20.0
 
 # Leave a visible/damageable body proxy at the anchor.
 # Paper 26.2 Mannequin is used and receives the player's skin/equipment.
