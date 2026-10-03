@@ -38,6 +38,7 @@ final class FreecamManager {
     private final Messages messages;
     private final Map<UUID, FreecamSession> sessions = new HashMap<>();
     private final Map<UUID, UUID> bodyOwners = new HashMap<>();
+    private final Map<UUID, UUID> hostileSpiderOwners = new HashMap<>();
     private final Map<UUID, Location> lastLegalLocations = new HashMap<>();
     private final Set<UUID> internalTeleports = new HashSet<>();
     private final Set<UUID> forwardedBodyDamage = new HashSet<>();
@@ -225,16 +226,18 @@ final class FreecamManager {
 
         removeBody(session);
 
+        boolean returned = false;
         if (returnToAnchor) {
             internalTeleports.add(player.getUniqueId());
             try {
-                player.teleport(returnLocation, PlayerTeleportEvent.TeleportCause.PLUGIN);
+                returned = player.teleport(returnLocation, PlayerTeleportEvent.TeleportCause.PLUGIN);
             } finally {
                 internalTeleports.remove(player.getUniqueId());
             }
         }
 
         restoreState(player, session);
+        releaseSpiderTargets(player, session, returned);
         player.setRemainingAir(finalAir);
         if (returnToAnchor && bodyPhysical) {
             player.setFallDistance(bodyFallDistance);
@@ -265,6 +268,7 @@ final class FreecamManager {
         int finalAir = getBodyAir(session);
         removeBody(session);
         restoreState(player, session);
+        releaseSpiderTargets(player, session, false);
         player.setRemainingAir(finalAir);
 
         if (sendMessage && player.isOnline()) {
@@ -570,6 +574,7 @@ final class FreecamManager {
             }
         }
         bodyOwners.clear();
+        hostileSpiderOwners.clear();
     }
 
     private void maintainBodyEnvironment() {
@@ -727,6 +732,7 @@ final class FreecamManager {
 
     private void maintainBodyAggro() {
         if (!plugin.getConfig().getBoolean("force-hostile-mob-aggro", true)) {
+            hostileSpiderOwners.clear();
             return;
         }
 
@@ -743,33 +749,74 @@ final class FreecamManager {
                 continue;
             }
 
+            Set<UUID> nearbySpiders = new HashSet<>();
             for (Entity entity : body.getNearbyEntities(radius, radius, radius)) {
                 if (!(entity instanceof Monster monster) || !monster.isValid() || !monster.isAware()) {
                     continue;
                 }
 
                 LivingEntity target = monster.getTarget();
+                if (monster instanceof Spider && !(monster instanceof CaveSpider)) {
+                    nearbySpiders.add(monster.getUniqueId());
+                }
 
                 if (ignoresMobAggro(player)) {
+                    hostileSpiderOwners.remove(monster.getUniqueId(), player.getUniqueId());
                     if (target == body || target == player) monster.setTarget(null);
                     continue;
                 }
 
                 if (target == body) {
+                    rememberSpiderTarget(monster, body);
                     continue;
                 }
 
                 // Do not steal a mob from another legitimate target.
                 if (target != null && target != player) {
+                    hostileSpiderOwners.remove(monster.getUniqueId(), player.getUniqueId());
                     continue;
                 }
 
                 // If the mob was already targeting the real camera Player, always
                 // redirect it to the body, even for normally neutral monsters.
-                if (target == player || shouldForceTargetBody(monster)) {
+                boolean rememberedSpider = player.getUniqueId().equals(hostileSpiderOwners.get(monster.getUniqueId()));
+                if (target == player || shouldForceTargetBody(monster) || rememberedSpider) {
                     monster.setTarget(body);
+                    rememberSpiderTarget(monster, monster.getTarget());
                 }
             }
+            hostileSpiderOwners.entrySet().removeIf(record -> record.getValue().equals(player.getUniqueId())
+                    && !nearbySpiders.contains(record.getKey()));
+        }
+    }
+
+    void rememberSpiderTarget(Entity entity, LivingEntity target) {
+        if (!(entity instanceof Spider) || entity instanceof CaveSpider || target == null) return;
+        UUID ownerUuid = target instanceof Player player && isActive(player)
+                ? player.getUniqueId() : bodyOwners.get(target.getUniqueId());
+        Player owner = ownerUuid == null ? null : plugin.getServer().getPlayer(ownerUuid);
+        if (owner != null && isActive(owner) && !ignoresMobAggro(owner)
+                && plugin.getConfig().getBoolean("force-hostile-mob-aggro", true)) {
+            hostileSpiderOwners.put(entity.getUniqueId(), ownerUuid);
+        } else {
+            hostileSpiderOwners.remove(entity.getUniqueId());
+        }
+    }
+
+    private void releaseSpiderTargets(Player player, FreecamSession session, boolean returned) {
+        double radius = Math.max(1, plugin.getConfig().getDouble("mob-aggro-radius-blocks", 32));
+        for (Map.Entry<UUID, UUID> record : Map.copyOf(hostileSpiderOwners).entrySet()) {
+            if (!record.getValue().equals(player.getUniqueId())) continue;
+            hostileSpiderOwners.remove(record.getKey());
+            if (!returned || ignoresMobAggro(player) || !player.isOnline() || player.isDead()) continue;
+            Entity entity = plugin.getServer().getEntity(record.getKey());
+            if (!(entity instanceof Spider spider) || !spider.isValid() || !spider.isAware()) continue;
+            LivingEntity target = spider.getTarget();
+            if (target != null && !target.getUniqueId().equals(session.bodyUuid())) continue;
+            Location location = spider.getLocation();
+            Location restored = player.getLocation();
+            if (location.getWorld() == restored.getWorld()
+                    && location.distanceSquared(restored) <= radius * radius) spider.setTarget(player);
         }
     }
 
@@ -800,6 +847,7 @@ final class FreecamManager {
         for (Entity entity : player.getNearbyEntities(64.0, 64.0, 64.0)) {
             if (entity instanceof Monster monster && monster.getTarget() == player) {
                 monster.setTarget(ignoresMobAggro(player) ? null : body);
+                rememberSpiderTarget(monster, monster.getTarget());
             }
         }
     }

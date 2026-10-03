@@ -12,6 +12,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Mannequin;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Monster;
+import org.bukkit.entity.Spider;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.event.entity.EntityTargetLivingEntityEvent;
 import org.bukkit.event.entity.EntityAirChangeEvent;
@@ -744,5 +745,121 @@ class WaterRegressionTest {
         verify(player).setVelocity(new Vector());
         verify(player, never()).setVelocity(new Vector(0, -0.8, 0));
         verify(player, never()).setFallDistance(10f);
+    }
+
+    private Spider nearbySpider(LivingEntity initialTarget) {
+        Spider spider = mock(Spider.class);
+        when(spider.getUniqueId()).thenReturn(UUID.randomUUID());
+        when(spider.isValid()).thenReturn(true);
+        when(spider.isAware()).thenReturn(true);
+        when(spider.getLocation()).thenAnswer(call -> bodyLocation.clone().add(2, 0, 0));
+        var target = new java.util.concurrent.atomic.AtomicReference<>(initialTarget);
+        when(spider.getTarget()).thenAnswer(call -> target.get());
+        doAnswer(call -> { target.set(call.getArgument(0)); return null; }).when(spider).setTarget(any());
+        when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(spider));
+        when(player.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(spider));
+        when(server.getEntity(spider.getUniqueId())).thenReturn(spider);
+        return spider;
+    }
+
+    @Test
+    void hostileSpiderReacquiresBodyAfterLosingProxyTarget() {
+        Spider spider = nearbySpider(player);
+        aggro.run();
+        assertSame(body, spider.getTarget());
+        spider.setTarget(null);
+        aggro.run();
+        assertSame(body, spider.getTarget());
+        spider.setTarget(null);
+        aggro.run();
+        assertSame(body, spider.getTarget());
+    }
+
+    @Test
+    void startingSpiderAggroSurvivesLossBeforeFirstMaintenanceTick() throws Exception {
+        Spider spider = nearbySpider(player);
+        var method = FreecamManager.class.getDeclaredMethod("retargetCurrentEnemies", Player.class, Mannequin.class);
+        method.setAccessible(true);
+        method.invoke(manager, player, body);
+        spider.setTarget(null);
+        aggro.run();
+        assertSame(body, spider.getTarget());
+    }
+
+    @Test
+    void targetingEventRecordsNewlyHostileSpiderWithoutAngeringNeutralSpiders() {
+        Spider spider = nearbySpider(null);
+        aggro.run();
+        verify(spider, never()).setTarget(any());
+        EntityTargetLivingEntityEvent event = mock(EntityTargetLivingEntityEvent.class);
+        when(event.getEntity()).thenReturn(spider);
+        when(event.getTarget()).thenReturn(body);
+        listener.onTargetResult(event);
+        aggro.run();
+        assertSame(body, spider.getTarget());
+    }
+
+    @Test
+    void spiderThatSwitchesToAnotherPlayerIsNotStolenBack() {
+        Spider spider = nearbySpider(player);
+        aggro.run();
+        Player other = mock(Player.class);
+        when(other.getUniqueId()).thenReturn(UUID.randomUUID());
+        spider.setTarget(other);
+        aggro.run();
+        assertSame(other, spider.getTarget());
+        spider.setTarget(null);
+        aggro.run();
+        assertNull(spider.getTarget());
+    }
+
+    @Test
+    void spiderMemoryExpiresOutsideBodyScanRange() {
+        Spider spider = nearbySpider(player);
+        aggro.run();
+        when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of());
+        aggro.run();
+        when(body.getNearbyEntities(anyDouble(), anyDouble(), anyDouble())).thenReturn(List.of(spider));
+        spider.setTarget(null);
+        aggro.run();
+        assertNull(spider.getTarget());
+    }
+
+    @Test
+    void creativeAndDisabledAggroDoNotRestoreRememberedSpider() {
+        Spider spider = nearbySpider(player);
+        aggro.run();
+        when(player.getGameMode()).thenReturn(GameMode.CREATIVE);
+        aggro.run();
+        assertNull(spider.getTarget());
+        when(player.getGameMode()).thenReturn(GameMode.SURVIVAL);
+        aggro.run();
+        assertNull(spider.getTarget());
+        spider.setTarget(player);
+        aggro.run();
+        config.set("force-hostile-mob-aggro", false);
+        aggro.run();
+        config.set("force-hostile-mob-aggro", true);
+        spider.setTarget(null);
+        aggro.run();
+        assertNull(spider.getTarget());
+    }
+
+    @Test
+    void returningFromFreecamTransfersSpiderBackToPlayer() throws Exception {
+        Spider spider = nearbySpider(player);
+        aggro.run();
+        manager.stop(player, true, false);
+        assertSame(player, spider.getTarget());
+        assertTrue(state("hostileSpiderOwners").isEmpty());
+    }
+
+    @Test
+    void externalTeleportForgetsSpiderWithoutTargetingCameraLocation() throws Exception {
+        Spider spider = nearbySpider(player);
+        aggro.run();
+        manager.stopWithoutReturn(player, false);
+        verify(spider, never()).setTarget(player);
+        assertTrue(state("hostileSpiderOwners").isEmpty());
     }
 }

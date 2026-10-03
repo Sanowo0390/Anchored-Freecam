@@ -300,6 +300,11 @@ final class FreecamListener implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onTargetResult(EntityTargetLivingEntityEvent event) {
+        manager.rememberSpiderTarget(event.getEntity(), event.getTarget());
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onBreak(BlockBreakEvent event) {
         if (manager.isActive(event.getPlayer())) event.setCancelled(true);
