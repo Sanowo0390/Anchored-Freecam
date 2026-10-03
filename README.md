@@ -2,95 +2,142 @@
 
 Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライアントMod不要の制限付きFreecamプラグインです。
 
-## 1.1.4 の主な変更
+## 1.1.5 の主な変更
 
-- デフォルト範囲を **20マス** に変更
-- `config.yml` に `language: ja` を追加
-- 日本語 `ja` / 英語 `en` に対応
-- コマンド、エラー、状態表示、ActionBarなどのプレイヤー向けメッセージを言語設定に連動
-- `/freecam language` で現在の言語を確認
-- `/freecam language <ja|en>` でその場で言語を変更可能
-- `anchoredfreecam.language` 権限を追加
-- `anchoredfreecam.admin` に言語変更権限も含む
+- デフォルト範囲は **20マス**
+- 言語をJavaコード内固定から **外部YAML方式** へ変更
+- `plugins/AnchoredFreecam/lang/*.yml` を自動検出
+- `ru.yml`、`uk.yml`、`de.yml`、`pt_br.yml` など任意の言語を追加可能
+- `/freecam language <言語ID>` で任意の追加言語へ切り替え
+- 言語コマンドのTAB補完も `lang/` 内の実ファイルから自動生成
+- 翻訳キーが不足している場合は `fallback-language` から自動補完
+- `/freecam reload` で `config.yml` と言語YAMLを再読み込み
 
-## 基本仕様
+## 言語ファイル
 
-- `/freecam` / `/fc` でON/OFF
-- 開始地点にプレイヤーのスキン・装備をコピーした **Mannequin本体** を残す
-- 実Player Entityは不可視のカメラとして飛行
-- 他プレイヤーからカメラPlayerを非表示
-- 本体から設定距離以上は離れられない
-- 範囲を越えた移動や同一ワールド内の範囲外Teleportはキャンセルし、最後の正常位置へ戻す
-- Spectatorを使わないためブロック衝突判定を維持
-- Freecam中の攻撃・破壊・設置・インタラクト・アイテム操作を禁止
-- 本体へのダメージは、デフォルトではFreecam終了後に本人へ転送
-- 通常の敵対MonsterはMannequin本体へ敵対を維持
+初回起動時に次のファイルが自動生成されます。
 
-## config.yml
+```text
+plugins/AnchoredFreecam/
+├─ config.yml
+└─ lang/
+   ├─ ja.yml
+   └─ en.yml
+```
+
+追加言語は `lang/` にYAMLを置くだけです。
+
+たとえばロシア語を追加する場合:
+
+```text
+plugins/AnchoredFreecam/lang/ru.yml
+```
+
+ウクライナ語なら:
+
+```text
+plugins/AnchoredFreecam/lang/uk.yml
+```
+
+その後、
+
+```text
+/freecam reload
+/freecam language ru
+```
+
+または、
+
+```text
+/freecam language uk
+```
+
+で使用できます。
+
+言語IDはファイル名から自動取得します。使用可能文字は英小文字・数字・`_`・`-` です。
+
+例:
+
+```text
+ja.yml       -> ja
+en.yml       -> en
+ru.yml       -> ru
+uk.yml       -> uk
+de.yml       -> de
+pt_br.yml    -> pt_br
+zh_cn.yml    -> zh_cn
+```
+
+## カスタム言語ファイル例
+
+`lang/ru.yml` を作る場合は、`ja.yml` または `en.yml` をコピーして翻訳するのが簡単です。
 
 ```yaml
-# ja / en
-language: ja
+no-permission: "..."
+reloaded: "..."
+current-range: "..."
+range-usage: "..."
+range-number: "..."
+range-limits: "..."
+range-set: "..."
+current-language: "..."
+language-usage: "..."
+language-unsupported: "..."
+language-set: "..."
+console-usage: "..."
+already-on: "..."
+already-off: "..."
+status: "..."
+usage: "..."
+state-on: "ON"
+state-off: "OFF"
+spectator-denied: "..."
+vehicle-denied: "..."
+body-spawn-failed: "..."
+freecam-enabled: "..."
+freecam-disabled-return: "..."
+freecam-disabled: "..."
+body-damaged: "..."
+boundary-return: "..."
+```
 
-# 本体から離れられる最大距離（マス）
+プレースホルダー `{range}`、`{label}`、`{state}`、`{language}`、`{languages}`、`{min}`、`{max}` は消さずに翻訳できます。
+
+## フォールバック
+
+`config.yml`:
+
+```yaml
+language: ja
+fallback-language: ja
+```
+
+たとえば、
+
+```yaml
+language: ru
+fallback-language: en
+```
+
+とすると、`ru.yml` に存在しないキーだけ `en.yml` から読み込みます。
+
+そのため、新しいメッセージがプラグイン側に追加された後でも、古いカスタム翻訳ファイルが即座に壊れにくい構成です。
+
+## 範囲
+
+新規導入時のデフォルト:
+
+```yaml
 max-distance-blocks: 20.0
-
-leave-body-at-anchor: true
-exit-on-body-damage: true
-hide-camera-player-from-others: true
-
-force-hostile-mob-aggro: true
-mob-aggro-radius-blocks: 32.0
-
-protect-camera-player: true
-disable-camera-entity-collision: true
-show-boundary-message: true
 ```
 
-新規導入時のデフォルトは **20マス / 日本語** です。
-
-既存の `config.yml` はプラグイン更新時に自動上書きされません。既存環境で20マスに変更する場合は:
+既存環境では:
 
 ```text
 /freecam range 20
 ```
 
-または `max-distance-blocks: 20.0` に変更してください。
-
-## 言語
-
-対応言語:
-
-- `ja` — 日本語
-- `en` — English
-
-設定ファイル:
-
-```yaml
-language: ja
-```
-
-コマンドでも変更できます。
-
-```text
-/freecam language
-/freecam language ja
-/freecam language en
-```
-
-変更は `config.yml` に保存され、その場で反映されます。
-
-## 範囲コマンド
-
-```text
-/freecam range
-/freecam range 20
-/freecam range 30
-```
-
-`/freecam range <マス>` は **0.1〜256マス** の範囲で指定できます。変更値は `config.yml` に保存されます。
-
-範囲を縮小した時点ですでに新しい範囲外にいるFreecamプレイヤーは、最後の正常な範囲内位置へ戻されます。
+で変更できます。
 
 ## コマンド
 
@@ -101,7 +148,7 @@ language: ja
 - `/freecam range`
 - `/freecam range <マス>`
 - `/freecam language`
-- `/freecam language <ja|en>`
+- `/freecam language <言語ID>`
 - `/freecam reload`
 
 エイリアス `/fc` も使用できます。
@@ -121,13 +168,17 @@ language: ja
 /lp group admin permission set anchoredfreecam.admin true
 ```
 
-## 敵対Mobについて
+## 基本仕様
 
-MannequinはLivingEntityですがPlayerではないため、VanillaのPlayer検索AIだけでは自動的にターゲットになりません。
-
-Anchored Freecamでは通常の敵対Monsterについて、Freecam本体周辺を定期的に確認してMannequin本体へターゲットを維持します。他のプレイヤーなど、すでに別の正当なターゲットを持つMobからターゲットを奪うことはしません。
-
-Enderman、通常Piglin、Zombified Piglin、通常Spider、Wardenなどの条件付き敵対Mobは、Freecamを使っただけでは強制敵対させません。すでにプレイヤーを狙っていた場合は本体へ引き継ぎます。
+- 開始地点にプレイヤーのスキン・装備をコピーしたMannequin本体を残す
+- 実Player Entityは不可視のカメラとして飛行
+- 他プレイヤーからカメラPlayerを非表示
+- 本体から設定距離以上は離れられない
+- 範囲を越えた場合はFreecam解除ではなく、最後の正常な範囲内位置へ戻す
+- ブロック衝突判定を維持
+- Freecam中の攻撃・破壊・設置・インタラクト・アイテム操作を禁止
+- 本体へのダメージはFreecam終了後に本人へ転送
+- 通常の敵対MonsterはMannequin本体へ敵対を維持
 
 ## 対応環境
 
@@ -145,5 +196,5 @@ gradle build
 生成物:
 
 ```text
-build/libs/AnchoredFreecam-1.1.4.jar
+build/libs/AnchoredFreecam-1.1.5.jar
 ```
