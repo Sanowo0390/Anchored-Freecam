@@ -44,6 +44,7 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
             }
 
             plugin.reloadConfig();
+            messages.reload();
             manager.refreshVisibility();
             manager.enforceCurrentRange();
 
@@ -73,16 +74,19 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
                 return true;
             }
 
-            if (!messages.isSupported(args[1])) {
+            String language = messages.normalizeLanguageId(args[1]);
+            if (language == null || !messages.isSupported(language)) {
                 sender.sendMessage(Component.text(
-                        messages.text("language-unsupported"),
+                        messages.text(
+                                "language-unsupported",
+                                "language", String.valueOf(args[1]),
+                                "languages", String.join(", ", messages.availableLanguages())),
                         NamedTextColor.RED));
                 return true;
             }
-
-            String language = messages.normalizeLanguage(args[1]);
             plugin.getConfig().set("language", language);
             plugin.saveConfig();
+            messages.reload();
 
             sender.sendMessage(Component.text(
                     messages.text("language-set", "language", language),
@@ -233,7 +237,7 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2
                 && (args[0].equalsIgnoreCase("language") || args[0].equalsIgnoreCase("lang"))
                 && sender.hasPermission("anchoredfreecam.language")) {
-            return List.of("ja", "en");
+            return messages.availableLanguages();
         }
 
         return List.of();
