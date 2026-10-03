@@ -4,6 +4,7 @@ import io.papermc.paper.datacomponent.item.ResolvableProfile;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.GameMode;
+import org.bukkit.Input;
 import org.bukkit.Location;
 import org.bukkit.damage.DamageSource;
 import org.bukkit.entity.CaveSpider;
@@ -23,6 +24,7 @@ import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -424,6 +426,21 @@ final class FreecamManager {
             if (player.isSwimming()) {
                 player.setSwimming(false);
             }
+
+            // Water must not physically carry the detached camera upward.
+            // Preserve intentional vertical free-flight input (jump/sneak), but
+            // cancel passive water/bubble-column Y velocity.
+            if (player.isInWater()) {
+                Input input = player.getCurrentInput();
+                if (!input.isJump() && !input.isSneak()) {
+                    Vector velocity = player.getVelocity();
+                    if (Math.abs(velocity.getY()) > 1.0E-4D) {
+                        velocity.setY(0.0D);
+                        player.setVelocity(velocity);
+                    }
+                }
+            }
+
             player.setFallDistance(0.0F);
 
             // Survival air belongs to the anchored body, not the moving camera.
