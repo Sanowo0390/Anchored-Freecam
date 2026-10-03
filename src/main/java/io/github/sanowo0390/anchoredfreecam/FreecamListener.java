@@ -188,7 +188,14 @@ final class FreecamListener implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onVelocity(PlayerVelocityEvent event) {
         Player player = event.getPlayer();
-        if (!manager.isActive(player) || !player.isInWater()) {
+        if (!manager.isActive(player)) {
+            return;
+        }
+
+        boolean cameraTouchingWater = player.isInWater()
+                || player.getLocation().getBlock().isLiquid()
+                || player.getEyeLocation().getBlock().isLiquid();
+        if (!cameraTouchingWater) {
             return;
         }
 
