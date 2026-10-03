@@ -231,7 +231,7 @@ final class FreecamCommand implements CommandExecutor, TabCompleter {
         if (args.length == 2
                 && args[0].equalsIgnoreCase("range")
                 && sender.hasPermission("anchoredfreecam.range")) {
-            return List.of("20", "10", "30", "50");
+            return List.of("15", "10", "20", "30");
         }
 
         if (args.length == 2
