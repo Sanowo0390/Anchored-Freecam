@@ -81,9 +81,9 @@ final class FreecamManager {
 
     double getMaxDistance() {
         if (plugin.getConfig().contains("max-distance-blocks")) {
-            return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 20.0D));
+            return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 15.0D));
         }
-        return Math.max(0.1D, plugin.getConfig().getDouble("max-distance", 20.0D));
+        return Math.max(0.1D, plugin.getConfig().getDouble("max-distance", 15.0D));
     }
 
     boolean start(Player player) {
@@ -120,6 +120,7 @@ final class FreecamManager {
                 player.isInvulnerable(),
                 player.isCollidable(),
                 player.isInvisible(),
+                player.isVisibleByDefault(),
                 player.isGliding(),
                 player.hasGravity(),
                 player.getRemainingAir(),
@@ -144,6 +145,9 @@ final class FreecamManager {
         // The moving real Player is only the camera. Keep it visually hidden.
         // Mob hostility is maintained against the anchored Mannequin separately.
         player.setInvisible(true);
+        if (plugin.getConfig().getBoolean("hide-camera-player-from-others", true)) {
+            player.setVisibleByDefault(false);
+        }
 
         if (plugin.getConfig().getBoolean("protect-camera-player", true)) {
             player.setInvulnerable(true);
@@ -347,6 +351,41 @@ final class FreecamManager {
             restoreVisibility(player);
             applyCameraVisibility(player);
         }
+    }
+
+    Location redirectedTeleportDestination(Player teleportedPlayer, Location requested) {
+        if (!plugin.getConfig().getBoolean("redirect-teleports-to-body", true)) {
+            return null;
+        }
+
+        double matchRadius = Math.max(0.05D,
+                plugin.getConfig().getDouble("teleport-camera-match-radius-blocks", 0.75D));
+        double maxSquared = matchRadius * matchRadius;
+
+        for (Map.Entry<UUID, FreecamSession> entry : sessions.entrySet()) {
+            if (entry.getKey().equals(teleportedPlayer.getUniqueId())) {
+                continue;
+            }
+
+            Player freecamPlayer = plugin.getServer().getPlayer(entry.getKey());
+            if (freecamPlayer == null || !freecamPlayer.isOnline()) {
+                continue;
+            }
+
+            Location camera = freecamPlayer.getLocation();
+            if (camera.getWorld() != requested.getWorld()) {
+                continue;
+            }
+
+            if (camera.distanceSquared(requested) <= maxSquared) {
+                Mannequin body = getBody(freecamPlayer);
+                return body != null && body.isValid()
+                        ? body.getLocation().clone()
+                        : entry.getValue().anchor().clone();
+            }
+        }
+
+        return null;
     }
 
     void enforceCurrentRange() {
@@ -556,6 +595,11 @@ final class FreecamManager {
             mannequin.setRemoveWhenFarAway(false);
             mannequin.setSilent(true);
 
+            if (plugin.getConfig().getBoolean("show-body-nameplate", true)) {
+                mannequin.customName(Component.text(player.getName()));
+                mannequin.setCustomNameVisible(true);
+            }
+
             if (Mannequin.validPoses().contains(player.getPose())) {
                 mannequin.setPose(player.getPose());
             }
@@ -602,6 +646,7 @@ final class FreecamManager {
         player.setInvulnerable(session.invulnerable());
         player.setCollidable(session.collidable());
         player.setInvisible(session.invisible());
+        player.setVisibleByDefault(session.visibleByDefault());
         player.setGravity(session.gravity());
         player.setAllowFlight(session.allowFlight());
         player.setFlying(session.allowFlight() && session.flying());
