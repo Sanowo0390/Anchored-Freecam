@@ -32,6 +32,7 @@ import java.util.UUID;
 
 final class FreecamManager {
     private final AnchoredFreecamPlugin plugin;
+    private final Messages messages;
     private final Map<UUID, FreecamSession> sessions = new HashMap<>();
     private final Map<UUID, UUID> bodyOwners = new HashMap<>();
     private final Map<UUID, Location> lastLegalLocations = new HashMap<>();
@@ -41,8 +42,9 @@ final class FreecamManager {
     private final Map<UUID, Long> lastBoundaryNotice = new HashMap<>();
     private final BukkitTask aggroTask;
 
-    FreecamManager(AnchoredFreecamPlugin plugin) {
+    FreecamManager(AnchoredFreecamPlugin plugin, Messages messages) {
         this.plugin = plugin;
+        this.messages = messages;
         this.aggroTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin,
                 this::maintainBodyAggro,
@@ -70,9 +72,9 @@ final class FreecamManager {
 
     double getMaxDistance() {
         if (plugin.getConfig().contains("max-distance-blocks")) {
-            return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 5.0D));
+            return Math.max(0.1D, plugin.getConfig().getDouble("max-distance-blocks", 20.0D));
         }
-        return Math.max(0.1D, plugin.getConfig().getDouble("max-distance", 5.0D));
+        return Math.max(0.1D, plugin.getConfig().getDouble("max-distance", 20.0D));
     }
 
     boolean start(Player player) {
@@ -80,13 +82,11 @@ final class FreecamManager {
             return false;
         }
         if (player.getGameMode() == GameMode.SPECTATOR) {
-            player.sendMessage(message(
-                    "Spectatorではブロック衝突を維持できないため開始できません。",
-                    NamedTextColor.RED));
+            player.sendMessage(message(messages.text("spectator-denied"), NamedTextColor.RED));
             return false;
         }
         if (player.isInsideVehicle()) {
-            player.sendMessage(message("乗り物から降りてから使用してください。", NamedTextColor.RED));
+            player.sendMessage(message(messages.text("vehicle-denied"), NamedTextColor.RED));
             return false;
         }
 
@@ -97,7 +97,7 @@ final class FreecamManager {
                 body = spawnBody(player, anchor);
             } catch (RuntimeException ex) {
                 plugin.getLogger().severe("Failed to create freecam body for " + player.getName() + ": " + ex.getMessage());
-                player.sendMessage(message("本体を生成できなかったためFreecamを開始できません。", NamedTextColor.RED));
+                player.sendMessage(message(messages.text("body-spawn-failed"), NamedTextColor.RED));
                 return false;
             }
         }
@@ -146,8 +146,7 @@ final class FreecamManager {
         }
 
         player.sendMessage(message(
-                "Freecam ON — 本体を残したまま、開始地点から "
-                        + trimDistance(getMaxDistance()) + " マス以内を移動できます。",
+                messages.text("freecam-enabled", "range", trimDistance(getMaxDistance())),
                 NamedTextColor.GREEN));
         return true;
     }
@@ -174,7 +173,7 @@ final class FreecamManager {
         restoreState(player, session);
         if (sendMessage && player.isOnline()) {
             player.sendMessage(message(
-                    returnToAnchor ? "Freecam OFF — 本体の位置へ戻りました。" : "Freecamを終了しました。",
+                    messages.text(returnToAnchor ? "freecam-disabled-return" : "freecam-disabled"),
                     NamedTextColor.YELLOW));
         }
         return true;
@@ -192,7 +191,7 @@ final class FreecamManager {
         restoreState(player, session);
 
         if (sendMessage && player.isOnline()) {
-            player.sendMessage(message("Freecamを終了しました。", NamedTextColor.YELLOW));
+            player.sendMessage(message(messages.text("freecam-disabled"), NamedTextColor.YELLOW));
         }
     }
 
@@ -277,7 +276,7 @@ final class FreecamManager {
 
         if (plugin.getConfig().getBoolean("exit-on-body-damage", true)) {
             stop(player, true, false);
-            player.sendMessage(message("本体がダメージを受けたためFreecamを終了しました。", NamedTextColor.RED));
+            player.sendMessage(message(messages.text("body-damaged"), NamedTextColor.RED));
             player.damage(damage, damageSource);
             return true;
         }
@@ -365,8 +364,7 @@ final class FreecamManager {
 
         lastBoundaryNotice.put(player.getUniqueId(), now);
         player.sendActionBar(Component.text(
-                "Freecamの範囲は本体から " + trimDistance(getMaxDistance())
-                        + " マスです。範囲内へ戻しました。",
+                messages.text("boundary-return", "range", trimDistance(getMaxDistance())),
                 NamedTextColor.RED));
     }
 
