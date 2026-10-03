@@ -2,7 +2,7 @@
 
 Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライアントMod不要の制限付きFreecamプラグインです。
 
-## 1.1.9 の主な変更
+## 1.1.10 の主な変更
 
 - デフォルト範囲を **15マス** に変更
 - 言語をJavaコード内固定から **外部YAML方式** へ変更
@@ -29,6 +29,10 @@ Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライア�
 - Mannequinのデフォルト説明文（NPC表記）を非表示
 - 本体のプレイヤー名ネームプレートは維持
 - 自分の本体を右クリックするとFreecamを終了して本体位置へ戻る
+- `PLUGIN` TeleportをすべてTPA扱いする挙動を修正
+- 小さい同一ワールド内のPLUGIN補正TeleportではFreecamを終了しない
+- 水面境界では `isInWater()` だけでなく足元・目の位置も見て水中補正を維持
+- 本体の目が実際には水上なのにDROWNINGが発生した場合は誤判定として無視
 
 ## 言語ファイル
 
@@ -213,7 +217,7 @@ gradle build
 生成物:
 
 ```text
-build/libs/AnchoredFreecam-1.1.9.jar
+build/libs/AnchoredFreecam-1.1.10.jar
 ```
 
 
@@ -250,3 +254,16 @@ Freecam中のPlayer Entityはカメラ位置に存在するため、通常のTPA
 Mannequinのデフォルトdescriptionは `null` にしているため、名前の下に出るNPC表記は表示しません。プレイヤー名のネームプレートは `show-body-nameplate: true` の場合そのまま表示します。
 
 Freecam中に自分のMannequin本体を右クリックすると、その操作をキャンセルしてFreecamを終了し、本体位置へ戻ります。他人の本体を右クリックしても自分のFreecamは終了しません。
+
+
+## 水中・水面の位置補正
+
+Paperの `PLUGIN` TeleportはTPA専用ではなく、プラグインによる位置補正にも使われます。1.1.10では、小さい同一ワールド内のPLUGIN TeleportはFreecam終了条件にしません。
+
+```yaml
+plugin-teleport-correction-max-distance-blocks: 3.0
+```
+
+この距離以内のPLUGIN Teleportは移動補正として扱います。それより大きいPLUGIN TeleportやCOMMAND Teleportは、TPA/Home等の実TeleportとしてFreecamを終了します。
+
+また、水面では `isInWater()` が境界で変化しやすいため、足元ブロックと目の位置も含めて水接触を判定します。
