@@ -56,3 +56,8 @@ redirect-teleports-to-body: true
 # How close an external teleport destination must be to the camera position
 # before it is treated as a teleport "to that player".
 teleport-camera-match-radius-blocks: 0.75
+
+
+# Small same-world PLUGIN teleports are treated as movement corrections
+# instead of intentional TPA/Home teleports, so they do not end freecam.
+plugin-teleport-correction-max-distance-blocks: 3.0
