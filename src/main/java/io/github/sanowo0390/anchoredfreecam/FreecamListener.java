@@ -32,7 +32,9 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerToggleFlightEvent;
+import org.bukkit.event.player.PlayerVelocityEvent;
 import org.bukkit.projectiles.ProjectileSource;
+import org.bukkit.util.Vector;
 
 final class FreecamListener implements Listener {
     private final AnchoredFreecamPlugin plugin;
@@ -163,6 +165,25 @@ final class FreecamListener implements Listener {
     public void onGameModeChange(PlayerGameModeChangeEvent event) {
         if (manager.isActive(event.getPlayer())) {
             manager.stop(event.getPlayer(), true, true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onVelocity(PlayerVelocityEvent event) {
+        Player player = event.getPlayer();
+        if (!manager.isActive(player) || !player.isInWater()) {
+            return;
+        }
+
+        Input input = player.getCurrentInput();
+        if (input.isJump() || input.isSneak()) {
+            return;
+        }
+
+        Vector velocity = event.getVelocity().clone();
+        if (Math.abs(velocity.getY()) > 1.0E-5D) {
+            velocity.setY(0.0D);
+            event.setVelocity(velocity);
         }
     }
 
