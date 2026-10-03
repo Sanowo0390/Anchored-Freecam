@@ -2,7 +2,7 @@
 
 Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライアントMod不要の制限付きFreecamプラグインです。
 
-## 1.1.8 の主な変更
+## 1.1.9 の主な変更
 
 - デフォルト範囲を **15マス** に変更
 - 言語をJavaコード内固定から **外部YAML方式** へ変更
@@ -26,6 +26,9 @@ Paper/Purpur **26.2** 向けの、サバイバルサーバー用・クライア�
 - 本体が落下している間はFreecamのアンカー中心も本体位置へ追従
 - 本体が着地したらその位置で固定
 - 空中でFreecamを手動終了した場合も、本体の落下速度と落下距離を実Playerへ戻すため落下停止に悪用できない
+- Mannequinのデフォルト説明文（NPC表記）を非表示
+- 本体のプレイヤー名ネームプレートは維持
+- 自分の本体を右クリックするとFreecamを終了して本体位置へ戻る
 
 ## 言語ファイル
 
@@ -210,7 +213,7 @@ gradle build
 生成物:
 
 ```text
-build/libs/AnchoredFreecam-1.1.8.jar
+build/libs/AnchoredFreecam-1.1.9.jar
 ```
 
 
@@ -240,3 +243,10 @@ Freecam中のPlayer Entityはカメラ位置に存在するため、通常のTPA
 - 落下途中でFreecamをOFFにした場合は、Mannequinの現在位置・速度・落下距離をPlayerへ戻す
 
 これにより、落下中にFreecamをON/OFFして空中停止する用途には使えないようにしています。
+
+
+## 本体表示と右クリック終了
+
+Mannequinのデフォルトdescriptionは `null` にしているため、名前の下に出るNPC表記は表示しません。プレイヤー名のネームプレートは `show-body-nameplate: true` の場合そのまま表示します。
+
+Freecam中に自分のMannequin本体を右クリックすると、その操作をキャンセルしてFreecamを終了し、本体位置へ戻ります。他人の本体を右クリックしても自分のFreecamは終了しません。
