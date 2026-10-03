@@ -41,6 +41,7 @@ final class FreecamManager {
     private final Set<UUID> pendingBoundaryCorrections = new HashSet<>();
     private final Map<UUID, Long> lastBoundaryNotice = new HashMap<>();
     private final BukkitTask aggroTask;
+    private final BukkitTask environmentTask;
 
     FreecamManager(AnchoredFreecamPlugin plugin, Messages messages) {
         this.plugin = plugin;
@@ -50,6 +51,12 @@ final class FreecamManager {
                 this::maintainBodyAggro,
                 1L,
                 2L
+        );
+        this.environmentTask = plugin.getServer().getScheduler().runTaskTimer(
+                plugin,
+                this::maintainBodyEnvironment,
+                1L,
+                1L
         );
     }
 
@@ -112,6 +119,8 @@ final class FreecamManager {
                 player.isCollidable(),
                 player.isInvisible(),
                 player.isGliding(),
+                player.hasGravity(),
+                player.getRemainingAir(),
                 player.getFallDistance()
         );
         sessions.put(player.getUniqueId(), session);
@@ -126,6 +135,8 @@ final class FreecamManager {
         }
         player.setAllowFlight(true);
         player.setFlying(true);
+        player.setGravity(false);
+        player.setSwimming(false);
         player.setFallDistance(0.0F);
 
         // The moving real Player is only the camera. Keep it visually hidden.
@@ -159,6 +170,8 @@ final class FreecamManager {
             return false;
         }
 
+        int finalAir = getBodyAir(session);
+
         removeBody(session);
 
         if (returnToAnchor) {
@@ -171,6 +184,7 @@ final class FreecamManager {
         }
 
         restoreState(player, session);
+        player.setRemainingAir(finalAir);
         if (sendMessage && player.isOnline()) {
             player.sendMessage(message(
                     messages.text(returnToAnchor ? "freecam-disabled-return" : "freecam-disabled"),
@@ -187,8 +201,10 @@ final class FreecamManager {
             return;
         }
 
+        int finalAir = getBodyAir(session);
         removeBody(session);
         restoreState(player, session);
+        player.setRemainingAir(finalAir);
 
         if (sendMessage && player.isOnline()) {
             player.sendMessage(message(messages.text("freecam-disabled"), NamedTextColor.YELLOW));
@@ -370,6 +386,7 @@ final class FreecamManager {
 
     void shutdown() {
         aggroTask.cancel();
+        environmentTask.cancel();
 
         for (UUID uuid : Set.copyOf(sessions.keySet())) {
             Player player = plugin.getServer().getPlayer(uuid);
@@ -384,6 +401,55 @@ final class FreecamManager {
             }
         }
         bodyOwners.clear();
+    }
+
+    private void maintainBodyEnvironment() {
+        for (Map.Entry<UUID, FreecamSession> entry : sessions.entrySet()) {
+            Player player = plugin.getServer().getPlayer(entry.getKey());
+            FreecamSession session = entry.getValue();
+
+            if (player == null || !player.isOnline()) {
+                continue;
+            }
+
+            // The camera is a detached viewpoint. Keep normal flying active and
+            // prevent water/gravity from turning the camera into a physical body.
+            player.setAllowFlight(true);
+            if (!player.isFlying()) {
+                player.setFlying(true);
+            }
+            if (player.hasGravity()) {
+                player.setGravity(false);
+            }
+            if (player.isSwimming()) {
+                player.setSwimming(false);
+            }
+            player.setFallDistance(0.0F);
+
+            // Survival air belongs to the anchored body, not the moving camera.
+            Mannequin body = getBody(player);
+            int air = body != null && body.isValid()
+                    ? body.getRemainingAir()
+                    : session.remainingAir();
+            int clampedAir = Math.max(0, Math.min(air, player.getMaximumAir()));
+
+            if (player.getRemainingAir() != clampedAir) {
+                player.setRemainingAir(clampedAir);
+            }
+        }
+    }
+
+    private int getBodyAir(FreecamSession session) {
+        if (session.bodyUuid() == null) {
+            return session.remainingAir();
+        }
+
+        Entity entity = plugin.getServer().getEntity(session.bodyUuid());
+        if (entity instanceof Mannequin body && body.isValid()) {
+            return body.getRemainingAir();
+        }
+
+        return session.remainingAir();
     }
 
     private void maintainBodyAggro() {
@@ -488,6 +554,8 @@ final class FreecamManager {
             mannequin.setMaxHealth(player.getMaxHealth());
             mannequin.setHealth(Math.min(player.getHealth(), mannequin.getMaxHealth()));
             mannequin.setAbsorptionAmount(player.getAbsorptionAmount());
+            mannequin.setMaximumAir(player.getMaximumAir());
+            mannequin.setRemainingAir(player.getRemainingAir());
         });
 
         body.setRotation(anchor.getYaw(), anchor.getPitch());
@@ -517,6 +585,7 @@ final class FreecamManager {
         player.setInvulnerable(session.invulnerable());
         player.setCollidable(session.collidable());
         player.setInvisible(session.invisible());
+        player.setGravity(session.gravity());
         player.setAllowFlight(session.allowFlight());
         player.setFlying(session.allowFlight() && session.flying());
         player.setGliding(session.gliding());
