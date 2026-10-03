@@ -130,7 +130,7 @@ final class FreecamListener implements Listener {
             }
 
             double correctionMax = Math.max(0.0D,
-                    plugin.getConfig().getDouble("plugin-teleport-correction-max-distance-blocks", 2.0D));
+                    plugin.getConfig().getDouble("plugin-teleport-correction-max-distance-blocks", 3.0D));
             double correctionMaxSquared = correctionMax * correctionMax;
             double displacementSquared = event.getFrom().distanceSquared(to);
 
