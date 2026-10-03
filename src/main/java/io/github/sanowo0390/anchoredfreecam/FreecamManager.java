@@ -321,6 +321,13 @@ final class FreecamManager {
             syncAnchorToBody(session);
         }
 
+        if (event.getCause() == EntityDamageEvent.DamageCause.DROWNING
+                && event.getEntity() instanceof Mannequin body
+                && !body.getEyeLocation().getBlock().isLiquid()) {
+            body.setRemainingAir(body.getMaximumAir());
+            return true;
+        }
+
         double damage = event.getDamage();
         DamageSource damageSource = event.getDamageSource();
 
@@ -519,9 +526,12 @@ final class FreecamManager {
             }
 
             // Water must not physically carry the detached camera upward.
-            // Preserve intentional vertical free-flight input (jump/sneak), but
-            // cancel passive water/bubble-column Y velocity.
-            if (player.isInWater()) {
+            // isInWater() can oscillate at the surface, so also check the feet
+            // and eye blocks to keep the correction active across the boundary.
+            boolean cameraTouchingWater = player.isInWater()
+                    || player.getLocation().getBlock().isLiquid()
+                    || player.getEyeLocation().getBlock().isLiquid();
+            if (cameraTouchingWater) {
                 Input input = player.getCurrentInput();
                 if (!input.isJump() && !input.isSneak()) {
                     Vector velocity = player.getVelocity();
